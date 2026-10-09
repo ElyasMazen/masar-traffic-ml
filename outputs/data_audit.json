@@ -1,0 +1,21 @@
+{
+  "snapshot_file": "jeddah_tomtom_flow 10.10(2).csv",
+  "rows": 5810,
+  "unique_runs": 581,
+  "unique_points": 10,
+  "unique_roads": 3,
+  "local_start": "2026-10-05 20:29:44",
+  "local_end": "2026-10-10 00:20:33",
+  "null_cells": 0,
+  "duplicate_timestamp_point_pairs": 0,
+  "all_runs_have_10_points": true,
+  "expected_runs_10min_approx": 600,
+  "coverage_percent_approx": 96.83,
+  "gaps_over_15min": 6,
+  "max_gap_minutes": 92.3,
+  "speed_ratio_formula_mismatches": 0,
+  "congestion_threshold_mismatches": 0,
+  "road_closure_true_rows": 6,
+  "speed_ratio_equal_1_percent": 63.13,
+  "eligible_model_rows_after_continuity_filter": 5670
+}

@@ -1,0 +1,7 @@
+timestamp_local,road,point_id,current_speed_kmh,free_flow_speed_kmh,speed_ratio,delay_s,confidence,road_closure
+2026-10-07 01:30:34,King Abdulaziz Road,King_Abdulaziz_Road_3,66,76,0.8684,110,0.903395,True
+2026-10-07 01:40:27,King Abdulaziz Road,King_Abdulaziz_Road_3,65,76,0.8553,123,0.900066,True
+2026-10-07 01:50:27,King Abdulaziz Road,King_Abdulaziz_Road_3,65,76,0.8553,123,0.896173,True
+2026-10-07 02:00:44,King Abdulaziz Road,King_Abdulaziz_Road_3,66,75,0.88,100,0.902237,True
+2026-10-07 02:10:26,King Abdulaziz Road,King_Abdulaziz_Road_3,62,75,0.8267,154,0.906384,True
+2026-10-07 02:20:27,King Abdulaziz Road,King_Abdulaziz_Road_3,66,76,0.8684,110,0.930024,True
