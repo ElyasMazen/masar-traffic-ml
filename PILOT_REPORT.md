@@ -81,7 +81,7 @@ The previous app version was worse than its own baseline (±13.3 vs ±11.8 km/h)
 
 ## 8. Files
 
-- `masar_features.py` — the single data/feature/baseline module (`load_data` is the only entry point for data); the web prototype uses an exact copy
+- `masar_features.py` — the single data/feature/baseline module (`load_data` is the only entry point for data); the web app in `web/` imports it directly
 - `train_masar.py` — full evaluation, charts and final models
 - `predict_next.py --horizon {10,30,60}` — forecast from the latest readings
 - `outputs/`, `charts/`, `models/` — see README

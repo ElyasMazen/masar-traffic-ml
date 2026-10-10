@@ -47,3 +47,10 @@ python predict_next.py --horizon 60
 - Every model is shown next to two baselines: persistence (next level = current level) and the historical average.
 
 See `PILOT_REPORT.md` for the results and their limits. These are **pilot-only** results.
+
+## Web prototype (`web/`)
+
+A Next.js + FastAPI interface for the Jeddah results (plus the NYC reference prototype). Its backend imports
+`masar_features.py` from this folder and reads `models/`, `outputs/results.json` and the training snapshot
+directly, so it always shows what `train_masar.py` produced. First time: run `web\SETUP_WINDOWS.bat`;
+afterwards `web\RUN_PROJECT.bat`, then open http://localhost:3000. Details in `web/README.md`.

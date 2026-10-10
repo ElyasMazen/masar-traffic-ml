@@ -7,22 +7,37 @@ __pycache__/
 # Secrets
 .env
 .env.*
+!web/frontend/.env.local.example
 *.key
 *.pem
 secrets.*
 credentials.*
 
-# Raw traffic data
-data/
+# Raw traffic data (root data/ only: web/backend/data/processed is app data and is committed)
+/data/
 raw_data/
 snapshots/
 pilot_*.csv
 jeddah_tomtom_flow*.csv
+*.snapshot.csv
 
 # Local test/retraining files
 _smoke_test/
 _smoke_forecast.csv
+next_step_forecast.csv
 retrain_outputs/
+
+# Web prototype: Node / Next.js build output
+web/frontend/node_modules/
+web/frontend/.next/
+web/frontend/out/
+web/frontend/build/
+*.tsbuildinfo
+
+# Web prototype: large raw NYC data and local Jeddah copies
+web/backend/data/raw/*.csv
+web/backend/data/jeddah/
+web/backend/models/jeddah/
 
 # IDE / OS
 .vscode/

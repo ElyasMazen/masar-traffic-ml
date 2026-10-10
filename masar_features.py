@@ -1,10 +1,9 @@
 """
 Shared Masar data loading, feature engineering and baselines.
 
-Used by train_masar.py, predict_next.py and - as a copied file - the Masar web
-prototype, so training and serving cannot drift apart. Keep this module
-self-contained (no imports from other project files): the prototype vendors
-this exact file.
+Used by train_masar.py, predict_next.py and the web app's backend
+(web/backend imports this file from the repo root), so training and serving
+cannot drift apart.
 
 Reading the raw GitHub CSV is read-only. Never call the TomTom API from here
 and never write to the data repo.

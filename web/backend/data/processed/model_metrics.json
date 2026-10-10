@@ -1,0 +1,12 @@
+{
+  "model": "HistGradientBoostingRegressor + historical road encodings",
+  "split": "chronological 80/20",
+  "train_rows": 376224,
+  "test_rows": 94057,
+  "train_end": "2019-10-12 12:00:00",
+  "test_start": "2019-10-12 12:00:00",
+  "test_end": "2021-05-09 23:00:00",
+  "MAE": 146.52,
+  "RMSE": 253.55,
+  "R2": 0.4177
+}
