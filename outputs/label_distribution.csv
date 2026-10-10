@@ -1,4 +1,4 @@
-congestion_level,count,percent
-Low,3883,66.83304647160068
-Medium,1363,23.459552495697075
-High,564,9.707401032702238
+congestion_level,rows,percent
+Low,4887,69.91
+Medium,1527,21.85
+High,576,8.24

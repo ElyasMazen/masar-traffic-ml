@@ -1,160 +1,91 @@
 # Masar — Pilot ML/Training Report
 
-**Project:** Masar (مسار) — Smart Traffic Intelligence  
-**Scope of this delivery:** Jeddah TomTom pilot data, next-observation congestion classification  
-**Snapshot:** `jeddah_tomtom_flow 10.10(2).csv`  
-**Important:** All accuracy values below are **pilot results**, not final project accuracy.
+**Project:** Masar (مسار) — Smart Traffic Intelligence
+**Scope:** Jeddah TomTom pilot data, 10 points on 3 roads, readings every ~10 minutes
+**Data used:** 6,990 readings, Mon 5 Oct 2026 20:29 → Sat 10 Oct 2026 20:00 (6 calendar days; Monday covers only its last 3.5 hours)
+**Snapshot:** `data/snapshots/jeddah_tomtom_flow_20261010_200107.csv` (downloaded from the raw GitHub CSV; re-run with `python train_masar.py --csv <that file>`)
+**Important:** every number below is a **pilot result**, not final project accuracy.
 
-## 1. What was built
+## 1. What changed in this version
 
-This delivery implements a leak-free, re-runnable pipeline for the current Masar traffic-flow snapshot. It mirrors the reference paper's methodological principles where they fit this dataset: chronological ordering, train-only preprocessing, held-out validation/test periods, temporal features, lagged traffic context, model comparison, and later extensibility to sequence models.
+The previous pilot reported a 10-minute Random Forest with 96% accuracy and macro-F1 0.888. The persistence baseline ("next level = current level") scored 0.889 on the same test, so the model added nothing, and at a 10-minute horizon a 96% headline is misleading. This version:
 
-The task here is classification rather than the paper's `volumePerHour` regression. The target is the **next observed congestion level (~10 minutes ahead)** for each TomTom point:
+1. Forecasts **+10, +30 and +60 minutes** ahead, with the target matched by time (the reading within ±5 min of t + horizon), so gaps cannot misalign it.
+2. Uses current and lagged speed ratio, speed and delay (t … t−6), rolling mean/std, the change since the previous reading, hour (sin/cos), day of week, Saudi weekend, point, free-flow speed, and the "usual ratio for this point and hour" (weekday and weekend kept apart), **fitted on the training period only**.
+3. Always compares the Random Forest (`class_weight="balanced"`) with **persistence** and the **historical average** on the same test rows.
+4. Re-evaluates the time-of-day prediction behind the web app's cards, map and 12-hour chart against historical averages.
 
-- Low: `speed_ratio >= 0.85`
-- Medium: `0.60 <= speed_ratio < 0.85`
-- High: `speed_ratio < 0.60`
+## 2. Test sets (chronological only)
 
-### Critical leakage decision
+| Test set | Train on | Test on | Day type |
+|---|---|---|---|
+| Latest 20% of time | 5 Oct 20:29 → 9 Oct 20:40 | 9 Oct 20:50 → 10 Oct 20:00 | **weekend only** (Fri evening + Sat) |
+| Last full weekday | 5 Oct 20:29 → 7 Oct 23:50 | Thu 8 Oct, full day | **weekday only** |
 
-`congestion_level` is deterministically derived from the same row's `speed_ratio`. Therefore, using current `speed_ratio`, current speed, delay, or travel time from the target row would produce a misleadingly easy classification problem.
+The latest days of the data are a weekend, and Jeddah weekend afternoons are almost free-flowing (speed ratio 0.96–1.00 at 14:00–17:00, against 0.64–0.77 on weekdays). A test on the latest days alone therefore says little about weekday rush hours. The second test holds out the last full weekday instead. Neither test set mixes weekdays and weekends, so each row below is already a weekday-only or weekend-only result. There is **no Sunday** in the data yet.
 
-This pipeline **does not use contemporaneous target-row traffic measurements**. It predicts time `t` from measurements available at `t-1`, `t-2`, and `t-3`, plus known calendar/road information.
+## 3. Short-term results
 
-## 2. Data audit
+Macro-F1 / accuracy / High recall (recall of the "High" congestion class). Bold = best macro-F1 in that row group.
 
-- Rows: **5,810**
-- Runs: **581**
-- Points: **10**
-- Roads: **3**
-- Local coverage: **2026-10-05 20:29:44 → 2026-10-10 00:20:33**
-- Null cells: **0**
-- Duplicate `(timestamp_utc, point_id)` pairs: **0**
-- Every recorded run contains all 10 points: **True**
-- Approximate 10-minute schedule coverage: **96.83%**
-- Gaps >15 minutes: **6**
-- Maximum gap: **92.30 minutes**
-- Speed-ratio formula mismatches: **0**
-- Congestion-label threshold mismatches: **0**
-- `road_closure=True` rows: **6**
-- `speed_ratio == 1.0`: **63.13%** of rows
-- Eligible model rows after continuity/lag filtering: **5,670**
+| Horizon | Method | Thursday 8 Oct (weekday) — F1 | Acc | High recall | Latest (weekend) — F1 | Acc | High recall |
+|---|---|---|---|---|---|---|---|
+| +10 min | Persistence | **0.891** | 0.916 | 0.86 | **0.845** | 0.941 | 0.72 |
+| +10 min | Historical average | 0.683 | 0.765 | 0.57 | 0.553 | 0.871 | 0.04 |
+| +10 min | Random Forest | 0.885 | 0.911 | 0.87 | 0.843 | 0.938 | 0.76 |
+| +30 min | Persistence | **0.815** | 0.862 | 0.75 | **0.788** | 0.915 | 0.65 |
+| +30 min | Historical average | 0.685 | 0.766 | 0.57 | 0.556 | 0.877 | 0.05 |
+| +30 min | Random Forest | 0.781 | 0.839 | 0.65 | 0.774 | 0.914 | 0.72 |
+| +60 min | Persistence | 0.744 | 0.804 | 0.66 | 0.701 | 0.875 | 0.57 |
+| +60 min | Historical average | 0.686 | 0.765 | 0.57 | 0.563 | 0.884 | 0.05 |
+| +60 min | Random Forest | **0.757** | 0.817 | 0.61 | **0.728** | 0.905 | 0.57 |
 
-### Items that need attention, not silent fixing
+High support: 197 High readings in the Thursday test, 37–46 in the weekend test.
 
-1. **Six >15-minute gaps exist.** Three are the large 5 Oct outage gaps, but there are also ~20-minute gaps on 7 Oct. These are listed in `outputs/gaps_over_15min.csv`.
-2. **Six `road_closure=True` rows occur on King Abdulaziz Road point 3 while reported speeds remain 62–66 km/h.** This could be valid TomTom semantics (e.g., a closure flag affecting part of the returned segment) or an API-data inconsistency. The raw rows are preserved in `outputs/road_closure_rows_for_review.csv`; nothing was overwritten.
-3. The target distribution is imbalanced: **Low 66.83% / Medium 23.46% / High 9.71%**.
-4. Some points currently have almost no High samples. Thresholds should **not** be changed from only this short pilot. Re-check after at least ~2 weeks including more weekends, as planned.
+**What this means.** At +10 and +30 minutes the Random Forest does **not** beat persistence on either test. Traffic states are very persistent over 10–30 minutes, and four days of training cannot teach the model when they change. At +60 minutes it is ahead on both tests, but only slightly (+0.013 and +0.027 macro-F1). On Thursday it gets that edge on the Medium class while catching **fewer** High readings than persistence (61% vs 66%). With a single held-out weekday, this is **indicative only**. It is not evidence that the model is better.
 
-## 3. Feature design
+The web app shows the +60 min forecast, with persistence next to it and the comparison sentence above. Figures: `charts/short_term_macro_f1.png`, `charts/short_term_high_recall.png`, `charts/confusion_<test>_<horizon>min.png`.
 
-Known-at-forecast-time features:
-- Road, point ID, FRC
-- Time-of-day represented cyclically (`sin/cos`)
-- Day-of-week represented cyclically
-- Saudi weekend flag
+## 4. Time-of-day prediction (cards, map, 12-hour chart)
 
-Past-only dynamic features:
-- `speed_ratio` lags 1–3
-- `delay_s` lags 1–3
-- current-speed lags 1–3
-- previous travel/free-flow values
-- previous confidence and closure flag
-- previous congestion level
-- rolling mean/std over the last 3 observations
+Predicts the usual speed for any point, date and hour, with no recent readings needed.
 
-A training sample is retained only when the target interval and the previous two intervals are each no more than 15 minutes. This avoids pretending an outage gap is a normal 10-minute step.
+| Method | Thursday (weekday): speed error | Level acc | Latest (weekend): speed error | Level acc |
+|---|---|---|---|---|
+| Gradient-boosting time model | **±4.9 km/h** | 79% | **±2.8 km/h** | 89% |
+| Historical average, point × hour | ±5.5 km/h | 77% | ±7.8 km/h | 73% |
+| Historical average, point × hour × weekday/weekend | ±5.5 km/h | 77% | ±3.1 km/h | 87% |
 
-## 4. Chronological split
+The time model has the lowest error on both tests, so the app keeps it (selection rule: lowest speed error on the weekday test). The two averages coincide on Thursday because its training days (Mon–Wed) include no weekend. On the weekend test, keeping weekdays and weekends apart cuts the error from ±7.8 to ±3.1 km/h.
 
-The split is performed by **unique timestamps**, so the 10 points from one run never leak across train/validation/test.
+The previous app version was worse than its own baseline (±13.3 vs ±11.8 km/h). That version used day-of-week features learned from one example per day, and averages that mixed weekend days into weekday hours. That mixing, plus a default date that fell on a Saturday, also produced the wrong-looking 12-hour chart. Now a weekday forecast for King Abdulaziz Rd point 1 tracks the observed weekday average: it falls from 0.84 at 13:00 to 0.38 at 17:00 and recovers after 19:00, and the 14:00–19:00 congestion appears where the data shows it. A day with no data yet, such as Sunday, uses the **weekday** pattern, never the weekend one.
 
-- Train: 72%
-- Validation: 8%
-- Test: 20%
+## 5. Data audit
 
-Current pilot test period is mostly Friday and has fewer High examples than development data. That is a real distribution shift and is one reason these results must remain labelled **pilot**.
+- 699 runs, all 10 points per run; 6 gaps longer than 15 minutes (max 92 min, on 5 Oct). See `outputs/gaps_over_15min.csv`.
+- 6 `road_closure=True` rows on King Abdulaziz Rd point 3 while speeds stay normal. They are kept as-is for review in `outputs/road_closure_rows_for_review.csv`.
+- Labels: Low 69.9% / Medium 21.9% / High 8.2%.
 
-## 5. Models
+## 6. Limits that cannot be fixed with the current data
 
-Three fixed, conservative ML baselines were trained without Bayesian over-tuning:
+- **One weekday test day, no Sunday, two weekend days.** Every comparison above rests on very little data; differences of a few hundredths of F1 are within noise.
+- **Weekday and weekend can't be compared within one test**, because each test set contains only one day type.
+- Probabilities shown in the app are the forest's average class probabilities, **not calibrated confidence**.
 
-1. Logistic Regression
-2. Decision Tree
-3. Random Forest
+## 7. Next steps
 
-A non-ML **Persistence** baseline was also evaluated: predict that the next level stays equal to the latest observed level.
+1. Re-run `train_masar.py` weekly. After 2–3 weeks, hold out a full week (weekdays and a weekend) instead of one day.
+2. Re-add day-of-week detail to the time model once each weekday has been seen several times.
+3. Review the 0.85 / 0.60 thresholds with more weeks of data.
+4. Try LSTM/GRU only after the Random Forest clearly beats persistence; until then, persistence is the bar to clear.
 
-Model family selection uses **validation Macro-F1**, not the test set.
+## 8. Files
 
-**Selected ML model: Random Forest.**
+- `masar_features.py` — the single data/feature/baseline module (`load_data` is the only entry point for data); the web prototype uses an exact copy
+- `train_masar.py` — full evaluation, charts and final models
+- `predict_next.py --horizon {10,30,60}` — forecast from the latest readings
+- `outputs/`, `charts/`, `models/` — see README
 
-## 6. Pilot results
+## 9. Reference methodology
 
-### Validation
-Random Forest:
-- Accuracy: **0.9200**
-- Balanced accuracy: **0.8786**
-- Macro-F1: **0.8617**
-
-### Untouched chronological test
-Random Forest:
-- Accuracy: **0.9570**
-- Balanced accuracy: **0.8796**
-- Macro-F1: **0.8873**
-- Low F1: **0.9803**
-- Medium F1: **0.8874**
-- High F1: **0.7941**
-
-Persistence baseline on the same test:
-- Accuracy: **0.9588**
-- Balanced accuracy: **0.8803**
-- Macro-F1: **0.8890**
-
-The persistence baseline is slightly stronger overall than Random Forest in this very short pilot. That is plausible because traffic states are highly persistent across adjacent ~10-minute intervals. It creates a meaningful baseline that LSTM/GRU should beat later; it should not be hidden.
-
-## 7. Interpretation
-
-The current model is mostly learning **short-term traffic persistence and recent speed-ratio/delay history**. Random Forest feature importance confirms that the strongest predictors are recent `speed_ratio`, its 3-step rolling mean, recent delay, and the previous congestion state.
-
-This is exactly why the current accuracy should **not** be presented as final. The dataset covers only a few days, the test period has a different class mix, and the same recurring road/point patterns have not yet been observed over enough weeks.
-
-## 8. Saved models
-
-- `models/random_forest_evaluated_dev80.joblib`  
-  Trained on train+validation after model selection. The 20% test remained untouched for the reported score.
-
-- `models/random_forest_pilot_fullfit.joblib`  
-  Separate demo/prototype model fit on all eligible pilot rows **after evaluation**. Use this one for the simple interface/demo. Its full-fit status must not be confused with the reported held-out test result.
-
-## 9. Recommended next stages
-
-When more data arrives:
-
-1. Re-run this exact pipeline weekly on downloaded snapshots.
-2. After ~2 weeks, review congestion thresholds and per-point class support.
-3. Add a simple **historical/time-only baseline** for forecasts that do not have recent live observations.
-4. When enough repeated daily/weekly patterns exist, perform limited validation-only tuning.
-5. Add LSTM and GRU using sliding windows adapted to 10-minute data. A 10-step window in Masar means about **100 minutes**, unlike the 10 minutes represented by 10 one-minute steps in the reference study.
-6. Compare ML, persistence, LSTM, and GRU on the same chronological test framework.
-7. Add SHAP/feature-importance analysis and regime analysis.
-8. Later, add road-safety scoring as a separate target/task rather than mixing it into congestion labels.
-
-## 10. Files to use
-
-- `train_masar.py` — re-train on any downloaded snapshot
-- `predict_next.py` — generate next-step point forecasts
-- `masar_features.py` — shared feature engineering
-- `outputs/test_metrics.csv` — final pilot comparison table
-- `outputs/latest_next_step_forecast.csv` — demo forecasts from the latest snapshot
-- `outputs/random_forest_feature_importance.csv`
-- `outputs/confusion_matrix_random_forest.csv`
-- `charts/` — presentation-ready figures
-- `models/` — evaluated and demo models
-
-## 11. Reference methodology
-
-Sara Atef (2026), *Comparative Evaluation of Traffic Load Prediction Models for Intelligent Transportation Systems Using High-Resolution Urban Data*, Smart Cities, 9(4), 56. DOI: 10.3390/smartcities9040056.
-
-Masar adapts the methodological principles but does **not** claim an identical experiment: our current data are 10-minute multi-segment observations and the current target is categorical congestion level, while the paper predicts traffic volume from one-minute data.
+Sara Atef (2026), *Comparative Evaluation of Traffic Load Prediction Models for Intelligent Transportation Systems Using High-Resolution Urban Data*, Smart Cities, 9(4), 56. DOI: 10.3390/smartcities9040056. Masar adapts its methodological principles (chronological evaluation, train-only preprocessing, baselines) but is not the same experiment: it uses 10-minute multi-point data and a categorical congestion target.

@@ -1,21 +1,24 @@
 {
-  "snapshot_file": "jeddah_tomtom_flow 10.10(2).csv",
-  "rows": 5810,
-  "unique_runs": 581,
-  "unique_points": 10,
-  "unique_roads": 3,
-  "local_start": "2026-10-05 20:29:44",
-  "local_end": "2026-10-10 00:20:33",
-  "null_cells": 0,
-  "duplicate_timestamp_point_pairs": 0,
-  "all_runs_have_10_points": true,
-  "expected_runs_10min_approx": 600,
-  "coverage_percent_approx": 96.83,
+  "rows": 6990,
+  "runs": 699,
+  "points": 10,
+  "roads": 3,
+  "first_reading": "2026-10-05 20:29:44",
+  "last_reading": "2026-10-10 20:00:43",
+  "readings_per_day": {
+    "2026-10-05": 50,
+    "2026-10-06": 1430,
+    "2026-10-07": 1420,
+    "2026-10-08": 1440,
+    "2026-10-09": 1440,
+    "2026-10-10": 1210
+  },
   "gaps_over_15min": 6,
-  "max_gap_minutes": 92.3,
-  "speed_ratio_formula_mismatches": 0,
-  "congestion_threshold_mismatches": 0,
-  "road_closure_true_rows": 6,
-  "speed_ratio_equal_1_percent": 63.13,
-  "eligible_model_rows_after_continuity_filter": 5670
+  "max_gap_min": 92.3,
+  "road_closure_rows": 6,
+  "label_distribution_percent": {
+    "Low": 69.91,
+    "Medium": 21.85,
+    "High": 8.24
+  }
 }
