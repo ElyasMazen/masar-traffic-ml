@@ -12,33 +12,38 @@ py -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 2) Re-train on a downloaded snapshot
+### 2) Train and evaluate
 
 ```powershell
-python train_masar.py --csv "jeddah_tomtom_flow 10.10(2).csv" --out retrain_outputs
+python train_masar.py                                  # latest data from the raw GitHub CSV
+python train_masar.py --csv "data\snapshots\<file>.csv" # re-run on a saved snapshot
 ```
 
-**Never point the scripts at the live GitHub workflow and never call the TomTom API.** Work only on downloaded CSV snapshots.
+By default the data is **read** from the raw GitHub CSV of the collector repo
+(`https://raw.githubusercontent.com/elAmigoOs/tomtomdata/main/jeddah_tomtom_flow.csv`).
+Each download is saved to `data/snapshots/` as a dated snapshot, so every result can be reproduced with `--csv`.
+raw.githubusercontent.com can lag about 5 minutes behind the latest commit.
 
-### 3) Predict the next ~10-minute congestion state
+**Never call the TomTom API from this repo, and never write to the data repo.** Reading the raw CSV is the only access.
 
-Using the packaged full-pilot demo model:
+### 3) Forecast the next 10 / 30 / 60 minutes
 
 ```powershell
-python predict_next.py --csv "jeddah_tomtom_flow 10.10(2).csv" --model "models/random_forest_pilot_fullfit.joblib" --out next_step_forecast.csv
+python predict_next.py --horizon 60
 ```
 
-## Scientific rule used here
+## What gets written
 
-The target label is derived from the current row's `speed_ratio`, so current-row traffic values are **not** allowed as predictors. The model uses past observations only.
+- `outputs/results.json` — everything the web prototype reads (data period, splits, all results, selected horizon and method)
+- `outputs/short_term_results.csv`, `outputs/confusion_matrices.csv` — horizon × method × test set
+- `outputs/time_of_day_results.csv` — time-of-day model vs historical averages
+- `charts/` — macro-F1 and High-recall by horizon, confusion matrices, time-of-day comparison, data overview
+- `models/short_term_rf_{10,30,60}min.joblib`, `models/time_of_day.joblib` — fitted on all readings after evaluation
 
-## Headline pilot result
+## Scientific rules used here
 
-Selected ML model: **Random Forest**
+- The short-term target is the congestion level observed **10/30/60 minutes after** the latest reading, matched by time (±5 min), so collection gaps cannot misalign it.
+- Chronological splits only: train on earlier time, test on later time. The "usual ratio" and every other learned value are fitted on the training period only.
+- Every model is shown next to two baselines: persistence (next level = current level) and the historical average.
 
-Chronological test:
-- Random Forest Accuracy: **0.9570**
-- Random Forest Macro-F1: **0.8873**
-- Persistence Macro-F1: **0.8890**
-
-These are **pilot-only** results. See `PILOT_REPORT.md` for limitations and suspicious-data notes.
+See `PILOT_REPORT.md` for the results and their limits. These are **pilot-only** results.
