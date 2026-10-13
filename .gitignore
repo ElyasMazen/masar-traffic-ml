@@ -32,6 +32,7 @@ web/frontend/node_modules/
 web/frontend/.next/
 web/frontend/out/
 web/frontend/build/
+web/frontend/public/maplibre-gl-worker.mjs
 *.tsbuildinfo
 
 # Web prototype: large raw NYC data and local Jeddah copies

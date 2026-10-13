@@ -214,25 +214,29 @@ class JeddahService:
 
     def summary(self) -> dict:
         r = self.results
-
-        def overall(rows):
-            return [x for x in rows if x["subset"] == "all"]
+        audit = r["data"]["audit"]
 
         return {
-            "data": {k: r["data"][k] for k in (
-                "source", "rows", "points", "first_reading", "last_reading", "days",
-                "day_names", "trained_through", "loaded_at",
-            )},
+            "data": {
+                **{k: r["data"][k] for k in (
+                    "source", "rows", "points", "first_reading", "last_reading", "days",
+                    "day_names", "trained_through", "loaded_at",
+                )},
+                "weekdays": audit["weekdays"],
+                "weekend_days": audit["weekend_days"],
+            },
+            "models": r["models"],
             "splits": r["splits"],
+            # Rows for subset "all", plus "weekday" / "weekend" when a test set holds both.
             "short_term": {
                 "methods": r["short_term"]["methods"],
                 "selected": r["short_term"]["selected"],
-                "results": overall(r["short_term"]["results"]),
+                "results": r["short_term"]["results"],
             },
             "time_of_day": {
                 "methods": r["time_of_day"]["methods"],
                 "selected": r["time_of_day"]["selected"],
-                "results": overall(r["time_of_day"]["results"]),
+                "results": r["time_of_day"]["results"],
             },
         }
 

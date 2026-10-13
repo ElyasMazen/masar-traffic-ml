@@ -20,9 +20,18 @@ import {
   type JeddahSimulation,
   type JeddahSummary,
   type ShortTerm,
+  type ShortTermPoint,
+  type Subset,
+  type TimeOfDayResult,
 } from "@/lib/jeddah";
 
 const WEEKEND = [5, 6]; // Friday, Saturday (JS getDay)
+const SUBSETS: Subset[] = ["all", "weekday", "weekend"];
+const TIME_METHOD_SHORT: Record<string, string> = {
+  time_model_hgb: "Time model",
+  avg_point_hour: "Avg: point × hour",
+  avg_point_hour_daytype: "Avg: point × hour × day type",
+};
 
 /** Today, or the next Sun-Thu working day when today is a Saudi weekend day. */
 function defaultDate() {
@@ -49,6 +58,29 @@ function delayText(travelS: number, freeFlowS: number) {
   const t = Math.round(travelS);
   const f = Math.round(freeFlowS);
   return { delta: `+${t - f} s`, detail: `(${t} s instead of ${f} s at free flow)` };
+}
+
+/** Random Forest level for latest reading + horizon, always labelled with the reading it starts from. */
+function NextHourCard({ forecast, horizon }: { forecast: ShortTermPoint | null; horizon: number }) {
+  return (
+    <div className="result-card result-card-safety">
+      <span>Next hour · +{horizon} min from latest reading</span>
+      {forecast ? (
+        <>
+          <strong className={`level-text-${forecast.predicted_level.toLowerCase()}`}>{forecast.predicted_level}</strong>
+          <small>
+            for {formatDateTime(forecast.forecast_for)} · from the {formatDateTime(forecast.latest_timestamp)} reading ·
+            model probability {pct(forecast.model_probability)} · persistence says {forecast.persistence_level}
+          </small>
+        </>
+      ) : (
+        <>
+          <strong>—</strong>
+          <small>Not enough recent readings for this point</small>
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function JeddahWorkspace({
@@ -133,26 +165,54 @@ export default function JeddahWorkspace({
   }, [points]);
 
   const data = summary?.data;
-  const trainedOn = data ? `Trained on ${formatDateRange(data.first_reading, data.trained_through)}, ${data.days} days` : "";
+  const models = summary?.models;
+  const trainedOn = data ? `Data: ${formatDateRange(data.first_reading, data.trained_through)}, ${data.days} days` : "";
+  const dayCount = data?.weekdays ? `${data.weekdays.length} weekdays, ${data.weekend_days.length} weekend days` : "";
   const splitLabel = (name: string) => summary?.splits.find((s) => s.split === name)?.label ?? name;
-  const splitDays = (name: string) => summary?.splits.find((s) => s.split === name)?.test_daytypes ?? "";
+  /** "Last 4 days (Sat 10 Oct – Tue 13 Oct)" -> "Last 4 days", plus which day type a row covers. */
+  const testLabel = (split: string, subset: Subset) => {
+    const short = splitLabel(split).split(" (")[0];
+    if (subset !== "all") return `${short} · ${subset === "weekday" ? "weekdays" : "weekend"} only`;
+    const days = summary?.splits.find((s) => s.split === split)?.test_daytypes ?? "";
+    return `${short} (${days.replace("+", " + ")})`;
+  };
   const horizon = shortTerm?.horizon_min;
   const selection = shortTerm?.selected;
 
   const shortRows = useMemo(() => {
     if (!summary) return [];
-    const find = (split: string, h: number, method: string) =>
-      summary.short_term.results.find((r) => r.split === split && r.horizon_min === h && r.method === method);
+    const results = summary.short_term.results;
+    const find = (split: string, h: number, subset: Subset, method: string) =>
+      results.find((r) => r.split === split && r.horizon_min === h && r.subset === subset && r.method === method);
     return summary.splits.flatMap((sp) =>
-      [10, 30, 60].map((h) => ({
-        split: sp.split,
-        horizon: h,
-        rf: find(sp.split, h, "random_forest"),
-        persistence: find(sp.split, h, "persistence"),
-        historical: find(sp.split, h, "historical"),
-      })),
+      [10, 30, 60].flatMap((h) =>
+        SUBSETS.filter((subset) => find(sp.split, h, subset, "random_forest")).map((subset) => ({
+          split: sp.split,
+          horizon: h,
+          subset,
+          rf: find(sp.split, h, subset, "random_forest"),
+          persistence: find(sp.split, h, subset, "persistence"),
+          historical: find(sp.split, h, subset, "historical"),
+        })),
+      ),
     );
   }, [summary]);
+
+  const timeRows = useMemo(() => {
+    if (!summary) return [];
+    const order = (r: TimeOfDayResult) =>
+      summary.splits.findIndex((s) => s.split === r.split) * 10 + SUBSETS.indexOf(r.subset);
+    return [...summary.time_of_day.results].sort((a, b) => order(a) - order(b));
+  }, [summary]);
+
+  // The +60 min card is "from the latest reading", not "for the selected time".
+  // Show it beside the selected-time cards only when the two are close.
+  const nearLatest =
+    simulation && shortTerm
+      ? Math.abs(toDate(simulation.datetime).getTime() - toDate(shortTerm.latest_timestamp).getTime()) <=
+        2 * 60 * 60 * 1000
+      : false;
+  const selectedNext = shortTerm?.points.find((p) => p.point_id === selectedId) ?? null;
 
   return (
     <>
@@ -167,6 +227,7 @@ export default function JeddahWorkspace({
           <label className="field-label">Road and point</label>
           <select
             className="field-input"
+            suppressHydrationWarning
             value={selectedId ?? ""}
             onChange={(event) => {
               const point = points.find((item) => item.point_id === event.target.value);
@@ -190,6 +251,7 @@ export default function JeddahWorkspace({
               <input
                 type="date"
                 lang="en-GB"
+                suppressHydrationWarning
                 value={date}
                 onChange={(event) => {
                   setDate(event.target.value);
@@ -201,6 +263,7 @@ export default function JeddahWorkspace({
             <div>
               <label className="field-label">Hour</label>
               <select
+                suppressHydrationWarning
                 value={hour}
                 onChange={(event) => {
                   setHour(Number(event.target.value));
@@ -221,6 +284,7 @@ export default function JeddahWorkspace({
           )}
 
           <button
+            suppressHydrationWarning
             className="simulate-button"
             onClick={runSimulation}
             disabled={!selectedId || !date || simulating}
@@ -294,7 +358,7 @@ export default function JeddahWorkspace({
           </div>
         ) : (
           <>
-            <div className="result-grid result-grid-five">
+            <div className={`result-grid ${nearLatest ? "result-grid-five" : "result-grid-four"}`}>
               <div className="result-card">
                 <span>Expected speed</span>
                 <strong>{Math.round(simulation.predicted_speed_kmh)} km/h</strong>
@@ -328,25 +392,9 @@ export default function JeddahWorkspace({
                   );
                 })()}
               </div>
-              <div className="result-card result-card-safety">
-                <span>+{simulation.short_term_horizon_min} min after latest reading · Random Forest</span>
-                {simulation.short_term ? (
-                  <>
-                    <strong className={`level-text-${simulation.short_term.predicted_level.toLowerCase()}`}>
-                      {simulation.short_term.predicted_level}
-                    </strong>
-                    <small>
-                      model probability {pct(simulation.short_term.model_probability)} · persistence says{" "}
-                      {simulation.short_term.persistence_level} · from the {formatDateTime(simulation.short_term.latest_timestamp)} reading
-                    </small>
-                  </>
-                ) : (
-                  <>
-                    <strong>—</strong>
-                    <small>Not enough recent readings for this point</small>
-                  </>
-                )}
-              </div>
+              {nearLatest && (
+                <NextHourCard forecast={simulation.short_term} horizon={simulation.short_term_horizon_min} />
+              )}
             </div>
 
             <div className="chart-card simple-chart-card">
@@ -376,15 +424,87 @@ export default function JeddahWorkspace({
         )}
       </section>
 
-      {summary && selection && (
+      {shortTerm && (
+        <section className="results-section" id="next-hour">
+          <div className="results-header">
+            <div>
+              <div className="section-kicker">SHORT-TERM FORECAST</div>
+              <h2>Next hour (from latest reading)</h2>
+              <p className="results-sub">
+                Latest reading: {formatDateTime(shortTerm.latest_timestamp)}. Forecast for{" "}
+                {formatDateTime(shortTerm.points[0]?.forecast_for ?? shortTerm.latest_timestamp)} (+{horizon} min), by the
+                Random Forest. This does not depend on the date and hour chosen above.
+              </p>
+            </div>
+            <span className="model-tag model-tag-final">Full-data model</span>
+          </div>
+          <div className="next-hour-grid">
+            <div>
+              <NextHourCard forecast={selectedNext} horizon={shortTerm.horizon_min} />
+              {selected && <p className="next-hour-point">{selected.label}</p>}
+            </div>
+            <div className="chart-card model-card next-hour-table">
+              <div className="nowcast-table-wrap">
+                <table className="nowcast-table">
+                  <thead>
+                    <tr>
+                      <th>Point</th>
+                      <th>Latest (= persistence)</th>
+                      <th>+{horizon} min model</th>
+                      <th className="num">Model probability</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shortTerm.points.map((row) => {
+                      const point = points.find((item) => item.point_id === row.point_id);
+                      return (
+                        <tr key={row.point_id} className={row.point_id === selectedId ? "row-selected" : ""}>
+                          <td>{point?.short_label ?? row.point_id}</td>
+                          <td><span className={levelClass(row.persistence_level)}>{row.persistence_level}</span></td>
+                          <td><span className={levelClass(row.predicted_level)}>{row.predicted_level}</span></td>
+                          <td className="num">{pct(row.model_probability)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <small>
+                Model probability is the forest&apos;s average class probability, not a calibrated confidence. At +10 and
+                +30 min the model does not beat persistence, so only +{horizon} min is shown.
+              </small>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {summary && selection && models && (
         <section className="results-section">
           <div className="results-header">
             <div>
               <div className="section-kicker">HOW THE PREDICTION WORKS</div>
               <h2>{trainedOn}</h2>
               <p className="results-sub">
-                Last reading used for training: {formatDateTime(summary.data.trained_through)}. Chronological tests only:
-                trained on earlier days, tested on later ones.
+                {data?.rows.toLocaleString("en-GB")} TomTom readings · {dayCount}. Chronological tests only: trained on
+                earlier days, tested on later ones.
+              </p>
+            </div>
+          </div>
+          <div className="model-explain">
+            <div>
+              <span className="model-tag model-tag-eval">Evaluated model</span>
+              <p>
+                Trained on {formatDateRange(models.evaluated.train_start, models.evaluated.train_end)}, tested on{" "}
+                {formatDateRange(models.evaluated.test_start, models.evaluated.test_end)}, which it never saw in training.
+                Every score below comes from this held-out test.
+              </p>
+            </div>
+            <div>
+              <span className="model-tag model-tag-final">Full-data model (used for predictions)</span>
+              <p>
+                Same settings, refitted on all {models.final.rows.toLocaleString("en-GB")} readings (
+                {formatDateRange(models.final.train_start, models.final.train_end)}) after the tests. It makes every
+                prediction on this page and has no separate score of its own.
               </p>
             </div>
           </div>
@@ -393,36 +513,41 @@ export default function JeddahWorkspace({
               <h3>Date &amp; hour → {summary.time_of_day.selected.label}</h3>
               <p>
                 Used for the cards, the map colours and the 12-hour chart. Compared with historical averages on the same
-                tests; the app uses the one with the lowest speed error on the weekday test.
+                tests; the app uses the one with the lowest speed error on the main test (
+                {splitLabel(models.evaluated.split)}).
               </p>
               <div className="nowcast-table-wrap">
                 <table className="nowcast-table">
                   <thead>
                     <tr>
                       <th>Method</th>
+                      <th className="num">Speed error</th>
+                      <th className="num">Level acc.</th>
                       <th>Test set</th>
-                      <th>Speed error</th>
-                      <th>Level accuracy</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.time_of_day.results.map((row) => (
-                      <tr key={`${row.split}-${row.method}`} className={row.method === summary.time_of_day.selected.method ? "row-selected" : ""}>
-                        <td>{summary.time_of_day.methods[row.method]}</td>
-                        <td>{splitLabel(row.split)} ({row.test_daytypes})</td>
-                        <td>±{row.mae_speed_kmh.toFixed(1)} km/h</td>
-                        <td>{pct(row.accuracy)}</td>
+                    {timeRows.map((row) => (
+                      <tr
+                        key={`${row.split}-${row.subset}-${row.method}`}
+                        className={[
+                          row.method === summary.time_of_day.selected.method ? "row-selected" : "",
+                          row.subset !== "all" ? "subset-row" : "",
+                        ].join(" ")}
+                      >
+                        <td>{TIME_METHOD_SHORT[row.method] ?? summary.time_of_day.methods[row.method]}</td>
+                        <td className="num">±{row.mae_speed_kmh.toFixed(1)} km/h</td>
+                        <td className="num">{pct(row.accuracy)}</td>
+                        <td>{testLabel(row.split, row.subset)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {summary.splits.some((s) => s.split === "weekday_holdout") && (
-                <small>
-                  The weekday test trains only on days before it, which include no weekend, so both averages coincide
-                  there. On the latest (weekend) test, separating weekdays from weekends matters a lot.
-                </small>
-              )}
+              <small>
+                Speed error = mean absolute error of the predicted speed. Level acc. = share of readings with the right
+                Low / Medium / High level.
+              </small>
             </div>
 
             <div className="chart-card model-card">
@@ -433,60 +558,40 @@ export default function JeddahWorkspace({
                   <thead>
                     <tr>
                       <th>Horizon</th>
+                      <th className="num">Model F1</th>
+                      <th className="num">Persist. F1</th>
+                      <th className="num">Hist. F1</th>
+                      <th className="num">High recall model / persist.</th>
                       <th>Test set</th>
-                      <th>Model F1</th>
-                      <th>Persistence F1</th>
-                      <th>Hist. avg F1</th>
-                      <th>High recall (model / persistence)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {shortRows.map((row) => (
-                      <tr key={`${row.split}-${row.horizon}`} className={row.horizon === horizon ? "row-selected" : ""}>
+                      <tr
+                        key={`${row.split}-${row.horizon}-${row.subset}`}
+                        className={[
+                          row.horizon === horizon ? "row-selected" : "",
+                          row.subset !== "all" ? "subset-row" : "",
+                        ].join(" ")}
+                      >
                         <td>+{row.horizon} min</td>
-                        <td>{splitLabel(row.split)} ({splitDays(row.split)})</td>
-                        <td>{row.rf?.macro_f1.toFixed(3)}</td>
-                        <td>{row.persistence?.macro_f1.toFixed(3)}</td>
-                        <td>{row.historical?.macro_f1.toFixed(3)}</td>
-                        <td>{pct(row.rf?.recall_High)} / {pct(row.persistence?.recall_High)}</td>
+                        <td className="num">{row.rf?.macro_f1.toFixed(3)}</td>
+                        <td className="num">{row.persistence?.macro_f1.toFixed(3)}</td>
+                        <td className="num">{row.historical?.macro_f1.toFixed(3)}</td>
+                        <td className="num">
+                          {pct(row.rf?.recall_High)} / {pct(row.persistence?.recall_High)}
+                          <span className="support"> (n={row.rf?.support_High})</span>
+                        </td>
+                        <td>{testLabel(row.split, row.subset)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-
-              {shortTerm && (
-                <div className="nowcast-table-wrap">
-                  <table className="nowcast-table">
-                    <thead>
-                      <tr>
-                        <th>Point</th>
-                        <th>Latest (= persistence)</th>
-                        <th>+{horizon} min model</th>
-                        <th>Model probability</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {shortTerm.points.map((row) => {
-                        const point = points.find((item) => item.point_id === row.point_id);
-                        return (
-                          <tr key={row.point_id}>
-                            <td>{point?.short_label ?? row.point_id}</td>
-                            <td><span className={levelClass(row.persistence_level)}>{row.persistence_level}</span></td>
-                            <td><span className={levelClass(row.predicted_level)}>{row.predicted_level}</span></td>
-                            <td>{pct(row.model_probability)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
               <small>
-                Forecast for {shortTerm ? formatDateTime(shortTerm.points[0]?.forecast_for ?? shortTerm.latest_timestamp) : ""},
-                made from the latest reading in the training snapshot. Only one weekday is held out (
-                {splitLabel(selection.primary_split)}), so these results are indicative only. Model probability is the
-                forest&apos;s average class probability, not a calibrated confidence.
+                F1 = macro-F1 over Low / Medium / High. n = High readings in that test. The weekend part of the main test is
+                a single Saturday with very few High readings, so its numbers are especially noisy. All results are
+                pilot-only and indicative.
               </small>
             </div>
           </div>

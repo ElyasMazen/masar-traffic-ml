@@ -86,20 +86,21 @@ def define_splits(d: pd.DataFrame) -> list[dict]:
         "test_end": d["ts"].max() + pd.Timedelta(seconds=1),
     }]
 
-    # The latest days can be all weekend, which says little about weekday rush
-    # hours. Also hold out the last FULL weekday: train on everything before it.
-    per_day = d.groupby(d["ts"].dt.normalize()).agg(n=("ts", "size"), dow=("dow", "first"))
-    expected = d["point_id"].nunique() * (24 * 60 // mf.STEP_MIN)
-    full = per_day[(per_day["n"] >= 0.9 * expected) & ~per_day["dow"].isin(mf.WEEKEND_DAYS)]
-    full = full[full.index > d["ts"].min().normalize()]
-    if not full.empty:
-        day = full.index.max()
-        splits.append({
-            "name": "weekday_holdout",
-            "label": f"Last full weekday ({day:%A %d %b})",
-            "train_end": day,
-            "test_start": day,
-            "test_end": day + pd.Timedelta(days=1),
+    # Main test: hold out the last 3+ days, starting at midnight of the latest
+    # weekend day that still leaves 3 days of test data, so the test holds both
+    # weekdays and a weekend day. Train on everything before it.
+    first, last = d["ts"].min(), d["ts"].max()
+    days = pd.date_range(first.normalize() + pd.Timedelta(days=1), last.normalize(), freq="D")
+    starts = [day for day in days if day.dayofweek in mf.WEEKEND_DAYS and last - day >= pd.Timedelta(days=3)]
+    start = max(starts) if starts else last.normalize() - pd.Timedelta(days=3)
+    if start > first:
+        n_days = (last.normalize() - start).days + 1
+        splits.insert(0, {
+            "name": "holdout",
+            "label": f"Last {n_days} days ({start:%a %d %b} - {last:%a %d %b})",
+            "train_end": start,
+            "test_start": start,
+            "test_end": last + pd.Timedelta(seconds=1),
         })
     return splits
 
@@ -177,7 +178,7 @@ def evaluate_short_term(d, splits):
 
 def choose_horizon(results: pd.DataFrame, splits: list[dict]) -> dict:
     names = [sp["name"] for sp in splits]
-    primary = "weekday_holdout" if "weekday_holdout" in names else "latest"
+    primary = "holdout" if "holdout" in names else "latest"
     overall = results[results["subset"] == "all"]
 
     def metric(split, h, method, name):
@@ -199,7 +200,7 @@ def choose_horizon(results: pd.DataFrame, splits: list[dict]) -> dict:
     others = [s for s in names if s != primary]
     # "Beats" needs a margin above noise on the primary test AND no loss on the others.
     if margin[(primary, h)] > F1_NOISE and all(margin[(s, h)] > 0 for s in others):
-        verdict, beats = "The model beats persistence at this horizon, by a small margin, on every test set.", True
+        verdict, beats = "Overall, the model beats persistence at this horizon, by a small margin, on every test set.", True
     elif margin[(primary, h)] >= -F1_NOISE:
         verdict, beats = "That is within noise: the model does not clearly beat persistence.", False
     else:
@@ -210,6 +211,17 @@ def choose_horizon(results: pd.DataFrame, splits: list[dict]) -> dict:
     if not (math.isnan(rf_high) or math.isnan(pe_high)) and rf_high < pe_high:
         verdict += (f" But it catches fewer High-congestion readings than persistence"
                     f" ({rf_high:.0%} vs {pe_high:.0%} High recall).")
+
+    # The overall score can hide a day type where the model is behind.
+    for subset in ("weekday", "weekend"):
+        part = results[(results["split"] == primary) & (results["horizon_min"] == h) & (results["subset"] == subset)]
+        if part.empty:
+            continue
+        rf_f1 = float(part.loc[part["method"] == "random_forest", "macro_f1"].iloc[0])
+        pe_f1 = float(part.loc[part["method"] == "persistence", "macro_f1"].iloc[0])
+        if rf_f1 < pe_f1:
+            verdict += (f" On the {subset} part of the test it is behind persistence"
+                        f" ({rf_f1:.3f} vs {pe_f1:.3f}).")
 
     losing = [x for x in mf.HORIZONS_MIN if margin[(primary, x)] <= F1_NOISE]
     if losing:
@@ -292,6 +304,10 @@ def audit(d: pd.DataFrame, out: Path) -> dict:
         .to_csv(out / "label_distribution.csv", index_label="congestion_level")
     pd.crosstab(d["point_id"], d["congestion_level"], normalize="index").reindex(columns=LABELS).mul(100).round(2) \
         .to_csv(out / "label_distribution_by_point_percent.csv")
+    by_point = pd.crosstab(d["point_id"], d["congestion_level"]).reindex(columns=LABELS).fillna(0).astype(int)
+    by_point.to_csv(out / "label_counts_by_point.csv")
+    day_list = pd.Series(d["ts"].dt.normalize().unique())
+    weekend = day_list.dt.dayofweek.isin(mf.WEEKEND_DAYS)
     result = {
         "rows": int(len(d)),
         "runs": int(len(runs)),
@@ -303,7 +319,12 @@ def audit(d: pd.DataFrame, out: Path) -> dict:
         "gaps_over_15min": int(len(big)),
         "max_gap_min": float(gaps.max()),
         "road_closure_rows": int((d["road_closure"].astype(str).str.lower() == "true").sum()),
+        "calendar_days": int(len(day_list)),
+        "weekdays": [f"{x:%a %d %b}" for x in day_list[~weekend]],
+        "weekend_days": [f"{x:%a %d %b}" for x in day_list[weekend]],
+        "label_counts": dist.to_dict(),
         "label_distribution_percent": (100 * dist / dist.sum()).round(2).to_dict(),
+        "high_by_point": by_point["High"].to_dict(),
     }
     (out / "data_audit.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
@@ -333,9 +354,10 @@ def chart_short_term(results: pd.DataFrame, splits, metric: str, title: str, pat
         ax.set_title(f"{sp['label']}\n(test: {r['test_daytypes'].iloc[0]})", fontsize=10)
         ax.spines[["top", "right"]].set_visible(False)
     axes[0][0].set_ylabel(title)
-    axes[0][-1].legend(fontsize=7, loc="lower right")
+    handles, names = axes[0][0].get_legend_handles_labels()
+    fig.legend(handles, names, fontsize=8, loc="lower center", ncol=len(SHORT_METHODS), frameon=False)
     fig.suptitle(title)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
     fig.savefig(path, dpi=150)
     plt.close(fig)
 
@@ -428,7 +450,7 @@ def clean(value):
     if isinstance(value, list):
         return [clean(v) for v in value]
     if isinstance(value, (np.floating, float)):
-        return None if math.isnan(value) else round(float(value), 4)
+        return None if math.isnan(value) else round(float(value), 6)
     if isinstance(value, np.integer):
         return int(value)
     return value
@@ -484,6 +506,7 @@ def main():
             "test_daytypes": "+".join(sorted(set(test["daytype"]))),
         })
     pd.DataFrame(split_rows).to_csv(out / "split_summary.csv", index=False)
+    primary_row = next(r for r in split_rows if r["split"] == selected_h["primary_split"])
 
     # Charts
     chart_short_term(short, splits, "macro_f1", "Macro-F1 by horizon", charts / "short_term_macro_f1.png")
@@ -502,7 +525,7 @@ def main():
         model = make_rf().fit(s[FEATURES], s["target_level"])
         joblib.dump({
             "pipeline": model, "features": FEATURES, "horizon_min": h,
-            "usual": usual_all, "trained_through": info["last_reading"],
+            "usual": usual_all, "trained_from": info["first_reading"], "trained_through": info["last_reading"],
         }, models / f"short_term_rf_{h}min.joblib", compress=3)
         if h == selected_h["horizon_min"]:
             chart_importance(model, h, out, charts)
@@ -522,6 +545,7 @@ def main():
     joblib.dump({
         **final_states[selected_t["method"]],
         "label": selected_t["label"],
+        "trained_from": info["first_reading"],
         "trained_through": info["last_reading"],
     }, models / "time_of_day.joblib", compress=3)
 
@@ -533,6 +557,21 @@ def main():
             "weekdays_with_data": sorted({int(x) for x in d["dow"].unique()}),
             "trained_through": info["last_reading"],
             "audit": audit_info,
+        },
+        # Two kinds of model: the evaluated ones (fitted on each split's train
+        # part, scored on its test part only) and the full-data ones the app
+        # predicts with (refitted on every reading after evaluation; no score).
+        "models": {
+            "evaluated": {
+                "split": selected_h["primary_split"],
+                "train_start": primary_row["train_start"], "train_end": primary_row["train_end"],
+                "test_start": primary_row["test_start"], "test_end": primary_row["test_end"],
+                "note": "All reported metrics come from these models on the held-out test period only.",
+            },
+            "final": {
+                "train_start": info["first_reading"], "train_end": info["last_reading"], "rows": info["rows"],
+                "note": "Refitted on all readings (train + test) after evaluation; used for every prediction in the app.",
+            },
         },
         "thresholds": {"low_min_ratio": mf.LOW_MIN_RATIO, "medium_min_ratio": mf.MEDIUM_MIN_RATIO},
         "splits": split_rows,

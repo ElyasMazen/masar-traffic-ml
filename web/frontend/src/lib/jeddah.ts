@@ -62,10 +62,20 @@ export type ShortTerm = {
   points: ShortTermPoint[];
 };
 
+/** "all" test rows, or only the weekday / weekend rows of a test that holds both. */
+export type Subset = "all" | "weekday" | "weekend";
+
+export type ModelPeriod = {
+  train_start: string;
+  train_end: string;
+  note: string;
+};
+
 export type ShortTermResult = {
   split: string;
   horizon_min: number;
   method: "persistence" | "historical" | "random_forest";
+  subset: Subset;
   test_daytypes: string;
   n: number;
   accuracy: number;
@@ -79,6 +89,7 @@ export type ShortTermResult = {
 export type TimeOfDayResult = {
   split: string;
   method: string;
+  subset: Subset;
   test_daytypes: string;
   n: number;
   mae_speed_kmh: number;
@@ -108,6 +119,12 @@ export type JeddahSummary = {
     day_names: string[];
     trained_through: string;
     loaded_at: string;
+    weekdays: string[];
+    weekend_days: string[];
+  };
+  models: {
+    evaluated: ModelPeriod & { split: string; test_start: string; test_end: string };
+    final: ModelPeriod & { rows: number };
   };
   splits: SplitInfo[];
   short_term: {

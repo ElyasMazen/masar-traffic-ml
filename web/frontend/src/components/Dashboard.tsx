@@ -110,7 +110,7 @@ export default function Dashboard() {
           <div className="eyebrow">MASAR · TRAFFIC INTELLIGENCE</div>
           <h1>Understand the road<br />before traffic builds.</h1>
           <p>
-            Choose a city, select a road and time, then view a simple traffic prediction on an interactive map.
+            Select a Jeddah road and time, then view a simple traffic prediction on an interactive map.
           </p>
         </div>
       </section>

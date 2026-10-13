@@ -6,7 +6,7 @@ import {
   NavigationControl,
   Popup,
   type GeoJSONSource,
-} from "maplibre-gl";
+} from "@/lib/maplibre";
 
 import { baseStyle } from "./TrafficMap";
 import type { JeddahLevel, JeddahPoint } from "@/lib/jeddah";

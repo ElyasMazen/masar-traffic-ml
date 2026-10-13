@@ -6,7 +6,7 @@ import {
   NavigationControl,
   type GeoJSONSource,
   type StyleSpecification,
-} from "maplibre-gl";
+} from "@/lib/maplibre";
 
 import type { MapRoad, PoliceRoadState, SegmentRoad } from "@/lib/api";
 import { LOCALE } from "@/lib/format";
