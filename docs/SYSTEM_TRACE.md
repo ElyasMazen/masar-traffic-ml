@@ -1,6 +1,6 @@
 # Masar prototype — end-to-end system trace
 
-**State traced:** commit `999dafe` (plus the docs commit that adds this file), on 13 Oct 2026.
+**State traced:** commit `999dafe`, plus the five follow-up fixes (percent truncation, exact delay, data coverage, date note, input validation and generated texts), on 13 Oct 2026.
 **Training snapshot:** `data/snapshots/jeddah_tomtom_flow_20261013_172552.csv` (11,150 rows).
 
 **How to read this document.**
@@ -95,20 +95,25 @@ flowchart TD
 
 ### 2.4 Cleaning — what is and is not done
 
-| Step | Code | Rows removed on this snapshot |
-|---|---|---|
-| Duplicate `(point_id, ts)` | `prepare` L99 `drop_duplicates` | **0** (no duplicates) |
-| Missing values | **Not implemented.** There is no NaN check or imputation. | 0 (the file has no NaN in any column) |
-| Invalid speeds (≤0, ratio >1) | **Not implemented.** | 0 (min ratio 0.1786, max 1.0; no speed ≤ 0) |
-| Collection gaps | Rows are **not** removed. Gaps are handled in the features (lags across a gap → NaN, L224-226) and in the target (`merge_asof` tolerance ±5 min, L269-277). | 0 |
+`prepare` (`masar_features.py` L103-135) validates each row before removing duplicates. Each dropped row is counted under the first rule it fails. The counts are kept in `d.attrs["rows_dropped"]` and copied into `info["rows_dropped"]` by `load_data` (L94). `train_masar.py` writes them to `outputs/data_audit.json` (`audit` L297, key `rows_dropped`) and to `results.json` (`data.rows_dropped` and `data.audit.rows_dropped`).
 
-- Rows after `prepare`: **11,150 = 11,150 raw**, in 1,115 runs × 10 points.
+| Rule (in order) | Code | Rows removed on this snapshot |
+|---|---|---|
+| `speed_ratio` missing | `prepare` L108-118 | **0** |
+| `speed_ratio` ≤ 0 or > 1 | same | **0** (min 0.1786, max 1.0) |
+| `current_speed_kmh` missing or ≤ 0 | same | **0** |
+| `free_flow_speed_kmh` missing or ≤ 0 | same | **0** |
+| Duplicate `(point_id, ts)` | L127 `drop_duplicates` | **0** |
+| Collection gaps | Rows are **not** removed. Gaps are handled in the features (lags across a gap → NaN, `lag_features`) and in the target (`merge_asof` tolerance ±5 min, `horizon_samples`). | 0 |
+
+- Rows after `prepare`: **11,150 = 11,150 raw** (`rows_raw`), in 1,115 runs × 10 points.
+- Other columns (`delay_s`, travel times, `frc`, coordinates) are **not validated**. They are clean in this snapshot (no NaN in any column).
 - **Gaps > 15 min:** 6, all on 5–7 Oct (`outputs/gaps_over_15min.csv`): 92.3, 61.5 and 37.5 min on the evening of 5 Oct, 15.2 min just after midnight, and 19.7 + 19.9 min on 7 Oct.
   - The code does not know their cause. The 5 Oct gaps match the GitHub-side collection outage mentioned by the team (**Interpretation**).
 - Gap effect on samples:
   - 70 readings have no valid lag-1, and 220 have no valid lag-6.
   - `horizon_samples` drops readings with no target within ±5 min: 70 at +10 min, 80 at +30 min and 100 at +60 min. That includes each point's last reading(s), whose future does not exist yet.
-- **Latent issue (not observed in this data):** `classify_many` (L46-48) maps a NaN ratio to **"High"**, because `NaN >= x` is False. A future row with a missing `speed_ratio` would be labelled High.
+- **NaN labels:** `classify` (L38-45) and `classify_many` (L48-55) now **raise `ValueError`** on a NaN ratio, instead of silently returning "High" (`NaN >= x` is False). With the row validation above, a NaN can no longer reach them from the CSV.
 - Speed ratio is capped at 1.0 by the collector: 66.9% of readings are exactly 1.0.
 
 ---
@@ -117,7 +122,7 @@ flowchart TD
 
 - `speed_ratio` = current speed / free-flow speed. **It is computed by the collector, not by this repo.** It matches `current_speed_kmh / free_flow_speed_kmh` to within 5·10⁻⁵ (rounding to 4 decimals).
 - Thresholds are **hardcoded** in `masar_features.py` L26-27: `LOW_MIN_RATIO = 0.85`, `MEDIUM_MIN_RATIO = 0.60`.
-- Rules (`classify` L38-43; vectorised `classify_many` L46-48):
+- Rules (`classify` L38-45; vectorised `classify_many` L48-55; both raise on NaN):
   - ratio ≥ 0.85 → **Low**
   - 0.60 ≤ ratio < 0.85 → **Medium**
   - ratio < 0.60 → **High**
@@ -262,8 +267,8 @@ There are 36 inputs (35 numeric + `point_id`, which is one-hot encoded to 10 col
 | `GET /api/jeddah/summary` (L149-151) | — | `data` (period, rows, days, weekday/weekend day lists), `models`, `splits`, short-term and time-of-day `methods` / `selected` / `results` (all subsets) | `results.json` only (`summary` L215-241) |
 | `GET /api/jeddah/points` (L154-156) | — | 10 catalog entries (id, road, label, lat/lon, frc, median free-flow speed and travel time, weekday average speed, weekday peak hour and level) | Snapshot readings (`_build_catalog` L57-79) |
 | `GET /api/jeddah/short-term` (L159-161) | — | horizon, latest timestamp, selection sentence, per point: latest/persistence level, predicted level, `model_probability`, all probabilities | Full-data RF + snapshot (precomputed at start-up) |
-| `GET /api/jeddah/levels?date&hour` (L164-166) | date, hour 0–23 | Per point: hour-mean ratio, km/h and level | Time-of-day model (`levels` L103-114) |
-| `POST /api/jeddah/simulate` (L169-174) | `{point_id, date, hour}` (`schemas.py` L13-16) | Cards, range, confidence, method, 12-hour forecast, that point's next-hour forecast, `notice` | Time-of-day model, `usual` tables, catalog (`simulate` L116-166) |
+| `GET /api/jeddah/levels?date&hour` (L164-166) | date, hour 0–23 | Per point: hour-mean ratio, km/h and level | Time-of-day model (`levels` L99-111); `speed_ratio` is sent unrounded |
+| `POST /api/jeddah/simulate` (L169-174) | `{point_id, date, hour}` (`schemas.py` L13-16) | Cards (unrounded `predicted_speed_ratio`, exact travel times in seconds), range, `data_coverage`, method, 12-hour forecast, that point's next-hour forecast | Time-of-day model, `usual` tables, catalog (`simulate` L116-166) |
 
 The older NYC endpoints (`/api/summary`, `/api/roads…`, `/api/simulate`, `/api/police/snapshot`, `/api/scenario`, `/health`) are still present but not reachable from the Jeddah-only UI.
 
@@ -271,42 +276,49 @@ The older NYC endpoints (`/api/summary`, `/api/roads…`, `/api/simulate`, `/api
 
 ## 7. Every number on the page
 
-The page loads `points`, `summary` and `short-term` once (`JeddahWorkspace.tsx` L106).
-- The default point is the first point (in API order) whose `weekday_peak_level` is High (L110-114) → **Al Haramain Rd · Point 2**.
-- The default hour is 17 (L98, **hardcoded**). The default date is today, or the next Sun–Thu if today is Fri/Sat (L37-41).
-- The map reloads `/levels` whenever the date or hour changes. The cards appear after **Predict traffic** calls `/simulate` (L146).
+The page loads `points`, `summary` and `short-term` once (`JeddahWorkspace.tsx` L113).
+- The default point is the first point (in API order) whose `weekday_peak_level` is High → **Al Haramain Rd · Point 2**.
+- The default hour is 17 (L105, **hardcoded**). The default date is today, or the next Sun–Thu if today is Fri/Sat (`defaultDate`).
+- The map reloads `/levels` whenever the date or hour changes. The cards appear after **Predict traffic** calls `/simulate`.
 
-### Hour-level prediction used by the cards, map and chart (`_ratios` L89-101)
+### Hour-level prediction used by the cards, map and chart (`_ratios`, `jeddah_service.py` L85-97)
 - For a point and an hour, the code builds six rows at minutes :00, :10, …, :50, using the point's **median** free-flow speed and its FRC.
-- It predicts each slot with the time-of-day model and **averages the six ratios**. The result is the hour's ratio `r`.
+- It predicts each slot with the time-of-day model and **averages the six ratios**. The result is the hour's ratio `r`, which the API sends **unrounded**.
 
-| UI element (file:line) | Calculation |
+**Ratio percentages** everywhere use `ratioPercent` (`lib/format.ts` L49-53). It formats `r × 100` with one decimal, **truncated, not rounded**, so the percentage always agrees with the level: 0.5997 → 59.9% (High), 0.85 → 85.0% (Low). The only ratio percentages on the page are the "Speed vs free flow" card and the map popup; the tables show F1, recall, accuracy and model probability, which are not speed ratios.
+
+| UI element | Calculation |
 |---|---|
-| **Expected speed** (L363-366) | `predicted_speed_kmh = round(r × median free-flow speed, 1)` (`simulate` L140), shown rounded to an integer. The sub-line shows the median free-flow speed. |
-| **Congestion level** (L368-376) | `classify(r)` on the unrounded `r` (`simulate` L143). |
-| **"53–64 km/h on past weekdays at this hour"** (L374) | `p25` and `p75` of all 10-minute `speed_ratio` readings for (point, hour, day type) in the **full-data** `usual` table, × median free-flow speed (`simulate` L130-133, L146-149), rounded. It is the **interquartile range** (middle 50%) over all collected days, not a min–max range and not a model interval. |
-| **Speed vs free flow** (L379-381) | `pct(predicted_speed_ratio)` = `Math.round(round(r, 3) × 100)` %. The hint "Low ≥ 85% · High < 60%" is **hardcoded** text. |
-| **Expected delay** (L384-394, `delayText` L52-62) | Backend: `expected_travel_time_s = round(fftt / max(r, 0.05))`, where `fftt` = median `free_flow_travel_time_s` of the point (catalog L74; `simulate` L127, L144). The frontend rounds travel and free-flow time **separately** to minutes when either is ≥ 120 s, then subtracts. The segment length is **not** in the data or the code; the delay comes only from TomTom's free-flow travel time and the predicted ratio (**Interpretation:** implied length = speed × time ≈ 19.3 km for Al Haramain 2). |
-| **"High at weekday peak"** badge (L299) | `classify(min over hours of the mean weekday speed_ratio)` for that point, over **all** weekday readings in the snapshot (`_build_catalog` L60-61, L77). Raw observed data, not a model. |
-| **"Usually slowest on weekdays around HH:00"** (L307-308) | The hour of that minimum (`weekday_peak_hour`, L76). |
-| **"… km/h weekday average"** (L303) | Mean `current_speed_kmh` of all weekday readings of the point (L75). |
-| **12-hour chart** (L400-417, `ForecastChart.tsx`) | `simulate` L122-123: hours h … h+11 (wrapping past midnight into the next day), each from `_ratios` → km/h, rounded. Only the speed is drawn; the per-hour level is sent but **not shown**. The chip shows the method label. |
-| **"Confidence: Medium"** (L418-421) | `_confidence` (L168-182): `days` = number of distinct dates with readings for (point, hour, day type) in the full-data table. **Medium if days ≥ 3, else Low (hardcoded). "High" can never occur.** The text adds notes for a weekday with no data and for days = 0. It is a count of observed days, not a statistical confidence. |
-| **Map dot colours** (`JeddahMap.tsx` L102-120) | `/levels` for the selected date and hour → `classify(r)` per point → red High `#d64f49`, amber Medium `#d6a13b`, green Low `#269b72`, grey if unknown. The hover popup shows the level and rounded km/h (L122-131). The selected dot is drawn bigger. |
-| **Weekend note / badge** (L281-282, L346) | Shown when the chosen date is Fri/Sat (browser `getDay`). **Hardcoded** text. |
-| **Footnote / "Data: 5–13 Oct 2026, 9 days"** (L169, L313-316) | `first_reading`, `trained_through`, `days`, `rows` from `results.json`. |
+| **Expected speed** | `predicted_speed_kmh = round(r × median free-flow speed, 1)` (`simulate` L113+), shown rounded to an integer. The sub-line shows the median free-flow speed. |
+| **Congestion level** | `classify(r)` on the unrounded `r`. |
+| **"53–64 km/h on past weekdays at this hour"** | `p25` and `p75` of all 10-minute `speed_ratio` readings for (point, hour, day type) in the **full-data** `usual` table, × median free-flow speed, rounded. It is the **interquartile range** (middle 50%) over all collected days, not a min–max range and not a model interval. |
+| **Speed vs free flow** (L425) | `ratioPercent(predicted_speed_ratio)`. The hint "Low ≥ 85% · High < 60%" is **hardcoded** text matching `LOW_MIN_RATIO` / `MEDIUM_MIN_RATIO`. |
+| **Expected delay** (`delayText` L58-69) | The backend sends the exact `expected_travel_time_s = fftt / max(r, 0.05)` (L124) and `free_flow_travel_time_s = fftt` (the median per point), both unrounded. The frontend works in minutes when either is ≥ 120 s. It rounds **once**: `delay = round((travel − fftt) / 60)`, and `free = round(fftt / 60)`. The text is "+{delay} min ({free + delay} min instead of {free} min at free flow)", so both parts always agree. The segment length is **not** in the data or the code (**Interpretation:** implied length = speed × time ≈ 19.3 km for Al Haramain 2). |
+| **Date note** (L444-449) | It always says "This prediction depends only on the day type (weekday/weekend) and the hour, not on the specific date." It adds "This is a prediction, not the observed value." if the selected hour had fully passed when Predict was pressed (`selectedIsPast` L227-229, compared with the click time `predictedAt`). |
+| **"High at weekday peak"** badge | `classify(min over hours of the mean weekday speed_ratio)` for that point, over **all** weekday readings in the snapshot (`_build_catalog`). Raw observed data, not a model. |
+| **"Usually slowest on weekdays around HH:00"** | The hour of that minimum (`weekday_peak_hour`). |
+| **"… km/h weekday average"** | Mean `current_speed_kmh` of all weekday readings of the point. |
+| **"Pick one of Masar's 10 TomTom measurement points on 3 roads"** (L266) | Both counts come from the catalog: `points.length` and the number of distinct roads. The map status line (`JeddahMap.tsx` L178) is computed the same way. |
+| **12-hour chart** (`ForecastChart.tsx`) | `simulate`: hours h … h+11 (wrapping past midnight into the next day), each from `_ratios` → km/h, rounded. Only the speed is drawn; the per-hour level is sent but **not shown**. The chip shows the method label. |
+| **"Data coverage: 6 weekdays observed at this hour."** (L469-470) | `_coverage` (`jeddah_service.py` L165-185): `days` = number of distinct dates with readings for (point, hour, day type) in the full-data table. It is a count, not a confidence; there is no Medium/Low wording. The note is added for a weekday never collected, and when `days = 0` ("falls back to the all-days average for this hour"). |
+| **Map dot colours** (`JeddahMap.tsx`) | `/levels` for the selected date and hour → `classify(r)` per point → red High `#d64f49`, amber Medium `#d6a13b`, green Low `#269b72`, grey if unknown. The hover popup shows "label — level · km/h (xx.x% of free flow)" with `ratioPercent` (L44, L129). The selected dot is drawn bigger. |
+| **Weekend note / badge** | Shown when the chosen date is Fri/Sat (browser `getDay`). **Hardcoded** text. |
+| **Footnote / "Data: 5–13 Oct 2026, 9 days"** | `first_reading`, `trained_through`, `days`, `rows` from `results.json`. |
 
-### Next hour (from latest reading) section (L427-480, `NextHourCard` L64-85)
-- **Latest reading / Forecast for:** `latest_timestamp` (max over points) and `forecast_for` = latest `ts` + 60 min (`_short_term_forecast` L197-198).
+### Next-hour section (`NextHourCard` L71+, section title L482)
+- **Titles:** the section title and the card label come from `horizonTitle(horizon)` (`format.ts` L56-58): "Next hour" for 60 min, otherwise "Next 30 min" / "Next 10 min".
+- **Latest reading / Forecast for:** `latest_timestamp` (max over points) and `forecast_for` = latest `ts` + horizon (`_short_term_forecast` L187+).
 - **Latest (= persistence):** `congestion_level` of the point's newest reading, i.e. `classify(speed_ratio)`.
-- **+60 min model:** argmax of `predict_proba` of the full-data RF on `latest_samples` (L188-201).
-- **Model probability:** `max(predict_proba)`, i.e. the forest's average vote share for the predicted class (L202). **Not calibrated.**
-- **When the card is next to the selected-time cards:** only if |selected date-hour − latest reading| ≤ 2 h (L210-214, **hardcoded** 2 h).
+- **+60 min model:** argmax of `predict_proba` of the full-data RF on `latest_samples`.
+- **Model probability:** `max(predict_proba)`, i.e. the forest's average vote share for the predicted class. **Not calibrated.** It is shown as a rounded percentage because it is not a speed ratio.
+- **Note under the table** (`horizonNote` L232-239): built from `results.json → short_term.selected.horizons_not_beating_persistence` (written by `choose_horizon`: horizons whose margin is ≤ `F1_NOISE`). Today it reads "At +10 and +30 min the model does not beat persistence on the main test, so only +60 min is shown."
+- **When the card is next to the selected-time cards:** only if |selected date-hour − latest reading| ≤ 2 h (`nearLatest` L219, **hardcoded** 2 h).
 
 ### "How the prediction works" section
-- The tables come straight from `results.json` (`summary`), sorted by split and subset (L181-207).
-- The selected rows are highlighted using `selected.method` and `selected.horizon_min`.
-- The verdict sentence is generated in `choose_horizon` (L234).
+- The tables come straight from `results.json` (`summary`), sorted by split and subset. The selected rows are highlighted using `selected.method` and `selected.horizon_min`.
+- The verdict sentence is generated in `choose_horizon`.
+- **Weekend note** under the short-term table (`weekendNote` L241-258): built from `splits[primary].test_weekend_days` (written by `train_masar.py main`, L510) and the weekend `support_High` of the selected horizon. Today it reads "The weekend part of the main test is a single weekend day (Sat 10 Oct) with 9 High readings at +60 min, so its numbers are especially noisy." "Especially noisy" is added when there are fewer than 30 High readings (**hardcoded** threshold).
+- The `/simulate` `notice` text was **removed** from the API. The page already says "Pilot data — not live traffic", and the removed sentence ("Only a few days of data so far") would have gone stale.
 
 ---
 
@@ -349,21 +361,23 @@ The page loads `points`, `summary` and `short-term` once (`JeddahWorkspace.tsx` 
 4. **HGB per slot:** 0.6079, 0.5907, 0.5910, 0.5947, 0.5950, 0.6192 → **mean r = 0.59973**.
 5. **Expected speed:** 0.59973 × 92 = 55.18 → API 55.2 → card **55 km/h**.
 6. **Level:** `classify(0.59973)` → 0.59973 < 0.60 → **High**.
-7. **Speed vs free flow:** API rounds r to 0.600 → `pct` → **60%**. See §10: the card shows 60% next to "High < 60%".
+7. **Speed vs free flow:** the API sends r = 0.599732 unrounded; `ratioPercent` truncates it to **59.9%**, which agrees with High (< 60%).
 8. **Delay:**
-   - travel = 756 / 0.59973 = 1,260.6 → 1,261 s
-   - the frontend rounds 1,261 / 60 = 21.0 → 21 min, and 756 / 60 = 12.6 → 13 min
-   - **+8 min**, "(21 min instead of 13 min at free flow)"; the exact difference is 505 s ≈ 8.4 min
+   - travel = 756 / 0.599732 = 1,260.56 s (sent unrounded)
+   - delay = (1,260.56 − 756) / 60 = 8.41 → **+8 min**
+   - free flow 756 / 60 = 12.6 → 13 min
+   - shown as "(21 min instead of 13 min at free flow)", where 21 = 13 + 8
 9. **Range:** `usual` (full data), weekday, 17:00 → p25 0.5714, p75 0.6923, × 92 = 52.6 – 63.7 → **"53–64 km/h on past weekdays at this hour"**. For comparison, the weekday 17:00 table mean is 0.6245.
-10. **Confidence:** 6 distinct weekdays observed at 17:00 → ≥ 3 → **Medium**.
-11. **12-hour chart (km/h):**
+10. **Data coverage:** 6 distinct weekdays observed at 17:00 (Tue 6, Wed 7, Thu 8, Sun 11, Mon 12, Tue 13) → "**Data coverage: 6 weekdays observed at this hour.**" There is no note, because Wednesday has been collected and there is data at 17:00.
+11. **Date note:** "This prediction depends only on the day type (weekday) and the hour, not on the specific date." 14 Oct is in the future, so there is no "not the observed value" line.
+12. **12-hour chart (km/h):**
 
     | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 00 | 01 | 02 | 03 | 04 |
     |---|---|---|---|---|---|---|---|---|---|---|---|
     | 55.2 | 66.8 | 65.0 | 79.6 | 81.3 | 81.5 | 85.0 | 88.2 | 89.6 | 91.2 | 92.0 | 92.0 |
 
-12. **Map dot:** `/levels` (same calculation) → High (red).
-    - Other points at that hour: Al Haramain 3 High, Al Madinah 3 High, Al Madinah 4 High, King Abdulaziz 1 High, King Abdulaziz 2 Medium, King Abdulaziz 3 Medium, Al Haramain 1 Low (r = 0.850, just at the boundary), Al Madinah 1 Low, Al Madinah 2 Low.
+13. **Map dot:** `/levels` (same calculation) → High (red), popup "… — High · 55 km/h (59.9% of free flow)".
+    - Other points at that hour: Al Haramain 3 High, Al Madinah 3 High, Al Madinah 4 High, King Abdulaziz 1 High, King Abdulaziz 2 Medium, King Abdulaziz 3 Medium, Al Haramain 1 Low (r = 0.8504 → 85.0%, just at the boundary), Al Madinah 1 Low, Al Madinah 2 Low.
 
 For context, the observed 17:00 means for this point on past weekdays were 0.625, 0.693, 0.559, 0.636, 0.615 and 0.611, so the prediction is in line with the data. **Interpretation:** the model does not know the date, only "weekday + 17:00", so every Sun–Thu 17:00 gets the same 55 km/h.
 
@@ -389,16 +403,16 @@ For context, the observed 17:00 means for this point on past weekdays were 0.625
 
 **Hardcoded values:**
 - the data URL
-- the thresholds 0.85 / 0.60
+- the thresholds 0.85 / 0.60, and the matching "Low ≥ 85% · High < 60%" hint
 - the weekend = Fri/Sat
 - the step of 10 min, the ±5 min tolerance and 6 lags
 - the horizons 10/30/60
 - RF and HGB hyperparameters
 - `F1_NOISE` 0.01
 - the 3-day minimum holdout and the 80% cut
-- the confidence rule (≥ 3 days → Medium)
 - the default hour 17
 - the 2-hour "near latest reading" window
+- the "especially noisy" cut-off (< 30 High readings)
 - the travel-time floor `max(r, 0.05)`
 
 **Assumptions:**
@@ -415,28 +429,26 @@ For context, the observed 17:00 means for this point on past weekdays were 0.625
 - Hyperparameters were not tuned.
 
 **Behaviour to be aware of:**
-- No cleaning beyond duplicate removal; a NaN ratio would be labelled High (§2.4).
-- The time model ignores the date: every weekday at the same hour gets the same prediction, past and future dates included. A past date shows a prediction, not the observed value.
-- The catalog, the badge, the peak hour, the IQR range and the confidence use the **full** snapshot (including the test days), which is fine for display but is not out-of-sample.
+- Only `speed_ratio` and the two speeds are validated; other columns (delay, travel times, coordinates) are not checked.
+- The time model ignores the date: every weekday at the same hour gets the same prediction, past and future dates included. The page now says so under the cards and marks past hours as predictions.
+- The catalog, the badge, the peak hour, the IQR range and the data coverage use the **full** snapshot (including the test days), which is fine for display but is not out-of-sample.
 - The time model sees per-reading free-flow speed in training but the median in serving.
 - `point_hour_mean` (time model) mixes weekdays and weekends; only `is_weekend` separates them.
 - The RF uses `target_dow` although each weekday has been seen only once or twice.
 - The next-hour forecast is fixed at backend start-up. It is from the training snapshot, not live.
 
-**UI text that does not exactly match the code:**
-1. **"60%" with "High"** (example 9a): `pct` rounds 0.5997 to 60%, while the level uses the unrounded value. The hint "High < 60%" then looks contradicted.
-2. **Delay "+8 min"** is the difference of two separately rounded minute values. It can differ by ±1 min from the exact delay (8.4 min here).
-3. **"53–64 km/h on past weekdays"** is the interquartile range (25th–75th percentile) of 10-minute readings, not the full range of past weekdays.
-4. **"Confidence: Medium/Low"** is a count of observed days, not model confidence; "High" never occurs.
-5. **"Next hour · +{horizon} min"** and the section title **"Next hour (from latest reading)"** are hardcoded words. If a retrain selected +30 min, the text would say "Next hour · +30 min".
-6. **Fixed sentences:**
-   - "At +10 and +30 min the model does not beat persistence, so only +60 min is shown" (`JeddahWorkspace.tsx` L473-474; only the "+60" comes from a variable)
-   - "The weekend part of the main test is a single Saturday…" (short-term table note)
-   - These are not generated from the results and would go stale after a retrain with different results. The verdict sentence above the table is generated.
-7. **Fixed counts:** "Pick one of Masar's 10 TomTom measurement points" (`JeddahWorkspace.tsx` L223) is hardcoded. In the map status (`JeddahMap.tsx` L175) the point count is computed but "on 3 Jeddah roads" is hardcoded.
-8. **"Data: …, 9 days"** counts calendar days, including the partial 5 Oct and 13 Oct.
-9. **The `notice` text** returned by `/simulate` ("Only a few days of data so far…", `jeddah_service.py` L32-35) is never displayed.
-10. **`results.json → data.source`** shows the snapshot path rather than the GitHub URL after a `--csv` re-run.
+**UI text vs code — fixed in this round:**
+1. A ratio percentage could contradict the level ("60%" next to High). Now truncated to one decimal (59.9%) on the card and in the map popup.
+2. The delay was the difference of two separately rounded values. It is now rounded once from exact seconds, and the "(X instead of Y)" text is built from the same numbers.
+3. "Confidence: Medium/Low" (a day count presented as confidence) is replaced by "Data coverage: N weekdays observed at this hour".
+4. The fixed horizon sentence, weekend sentence, point/road counts and "Next hour" titles are now generated from `results.json` / the catalog.
+5. The unused `notice` was removed from `/simulate`.
+
+**UI text vs code — still open:**
+1. **"53–64 km/h on past weekdays"** is the interquartile range (25th–75th percentile) of 10-minute readings, not the full range of past weekdays.
+2. **"Data: …, 9 days"** counts calendar days, including the partial 5 Oct and 13 Oct.
+3. **`results.json → data.source`** shows the snapshot path rather than the GitHub URL after a `--csv` re-run.
+4. **The weekend note / badge text** and the "Low ≥ 85% · High < 60%" hint are still fixed strings. They match the current code but are not read from `results.json → thresholds`.
 
 ---
 
