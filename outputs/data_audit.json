@@ -1,24 +1,58 @@
 {
-  "rows": 6990,
-  "runs": 699,
+  "rows": 11150,
+  "runs": 1115,
   "points": 10,
   "roads": 3,
   "first_reading": "2026-10-05 20:29:44",
-  "last_reading": "2026-10-10 20:00:43",
+  "last_reading": "2026-10-13 17:20:29",
   "readings_per_day": {
     "2026-10-05": 50,
     "2026-10-06": 1430,
     "2026-10-07": 1420,
     "2026-10-08": 1440,
     "2026-10-09": 1440,
-    "2026-10-10": 1210
+    "2026-10-10": 1440,
+    "2026-10-11": 1440,
+    "2026-10-12": 1440,
+    "2026-10-13": 1050
   },
   "gaps_over_15min": 6,
   "max_gap_min": 92.3,
   "road_closure_rows": 6,
+  "calendar_days": 9,
+  "weekdays": [
+    "Mon 05 Oct",
+    "Tue 06 Oct",
+    "Wed 07 Oct",
+    "Thu 08 Oct",
+    "Sun 11 Oct",
+    "Mon 12 Oct",
+    "Tue 13 Oct"
+  ],
+  "weekend_days": [
+    "Fri 09 Oct",
+    "Sat 10 Oct"
+  ],
+  "label_counts": {
+    "Low": 7936,
+    "Medium": 2235,
+    "High": 979
+  },
   "label_distribution_percent": {
-    "Low": 69.91,
-    "Medium": 21.85,
-    "High": 8.24
+    "Low": 71.17,
+    "Medium": 20.04,
+    "High": 8.78
+  },
+  "high_by_point": {
+    "Al_Haramain_Road_1": 0,
+    "Al_Haramain_Road_2": 256,
+    "Al_Haramain_Road_3": 176,
+    "Al_Madinah_Road_1": 0,
+    "Al_Madinah_Road_2": 28,
+    "Al_Madinah_Road_3": 188,
+    "Al_Madinah_Road_4": 144,
+    "King_Abdulaziz_Road_1": 155,
+    "King_Abdulaziz_Road_2": 7,
+    "King_Abdulaziz_Road_3": 25
   }
 }
