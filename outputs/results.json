@@ -2,8 +2,17 @@
   "data": {
     "source": "data/snapshots/jeddah_tomtom_flow_20261013_172552.csv",
     "snapshot": "data/snapshots/jeddah_tomtom_flow_20261013_172552.csv",
-    "loaded_at": "2026-10-13T17:33:03",
+    "loaded_at": "2026-10-13T17:55:08",
     "rows": 11150,
+    "rows_raw": 11150,
+    "rows_dropped": {
+      "speed_ratio_missing": 0,
+      "speed_ratio_out_of_range": 0,
+      "current_speed_missing_or_le_0": 0,
+      "free_flow_speed_missing_or_le_0": 0,
+      "duplicate_point_timestamp": 0,
+      "total": 0
+    },
     "points": 10,
     "first_reading": "2026-10-05 20:29:44",
     "last_reading": "2026-10-13 17:20:29",
@@ -31,6 +40,14 @@
     "trained_through": "2026-10-13 17:20:29",
     "audit": {
       "rows": 11150,
+      "rows_dropped": {
+        "speed_ratio_missing": 0,
+        "speed_ratio_out_of_range": 0,
+        "current_speed_missing_or_le_0": 0,
+        "free_flow_speed_missing_or_le_0": 0,
+        "duplicate_point_timestamp": 0,
+        "total": 0
+      },
       "runs": 1115,
       "points": 10,
       "roads": 3,
@@ -118,7 +135,15 @@
       "test_end": "2026-10-13 17:20:29",
       "train_readings": 5780,
       "test_readings": 5370,
-      "test_daytypes": "weekday+weekend"
+      "test_daytypes": "weekday+weekend",
+      "test_weekend_days": [
+        "Sat 10 Oct"
+      ],
+      "test_weekdays": [
+        "Sun 11 Oct",
+        "Mon 12 Oct",
+        "Tue 13 Oct"
+      ]
     },
     {
       "split": "latest",
@@ -129,7 +154,12 @@
       "test_end": "2026-10-13 17:20:29",
       "train_readings": 8920,
       "test_readings": 2230,
-      "test_daytypes": "weekday"
+      "test_daytypes": "weekday",
+      "test_weekend_days": [],
+      "test_weekdays": [
+        "Mon 12 Oct",
+        "Tue 13 Oct"
+      ]
     }
   ],
   "short_term": {
@@ -146,6 +176,11 @@
       "margin": 0.036262,
       "beats_persistence": true,
       "rule": "horizon with the largest Random Forest - persistence macro-F1 margin on 'Last 4 days (Sat 10 Oct - Tue 13 Oct)'",
+      "f1_noise": 0.01,
+      "horizons_not_beating_persistence": [
+        10,
+        30
+      ],
       "sentence": "At +60 min: model F1 0.716 vs persistence 0.680 (Last 4 days (Sat 10 Oct - Tue 13 Oct)); 0.747 vs persistence 0.650 (Latest 20% of time). Overall, the model beats persistence at this horizon, by a small margin, on every test set. On the weekend part of the test it is behind persistence (0.595 vs 0.624). At +10 and +30 min it does not beat persistence.",
       "comparison": [
         {

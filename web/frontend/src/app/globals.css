@@ -433,6 +433,12 @@ select.field-input { text-overflow: ellipsis; }
 }
 .row-selected td { background: var(--green-soft); }
 
+.date-note {
+  margin: 10px 4px 0;
+  color: #7f8c87;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .confidence-note {
   margin: 6px 4px 14px;
   color: #7f8c87;

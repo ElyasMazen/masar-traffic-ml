@@ -51,6 +51,8 @@ export type ShortTermSelection = {
   beats_persistence: boolean;
   rule: string;
   sentence: string;
+  f1_noise: number;
+  horizons_not_beating_persistence: number[];
   comparison: HorizonComparison[];
 };
 
@@ -106,6 +108,8 @@ export type SplitInfo = {
   test_start: string;
   test_end: string;
   test_daytypes: string;
+  test_weekend_days: string[];
+  test_weekdays: string[];
 };
 
 export type JeddahSummary = {
@@ -162,16 +166,16 @@ export type JeddahSimulation = {
     upper_speed_kmh: number | null;
     days_observed: number;
   };
-  prediction_confidence: {
-    level: "Medium" | "Low";
-    detail: string;
+  /** How many days of readings back this point / hour / day type. A count, not a confidence. */
+  data_coverage: {
     days_observed: number;
+    summary: string;
+    note: string;
   };
   method: { key: string; label: string };
   forecast: JeddahForecastPoint[];
   short_term: ShortTermPoint | null;
   short_term_horizon_min: number;
-  notice: string;
 };
 
 async function getJson<T>(url: string): Promise<T> {

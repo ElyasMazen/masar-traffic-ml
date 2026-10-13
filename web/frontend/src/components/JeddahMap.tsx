@@ -10,6 +10,7 @@ import {
 
 import { baseStyle } from "./TrafficMap";
 import type { JeddahLevel, JeddahPoint } from "@/lib/jeddah";
+import { ratioPercent } from "@/lib/format";
 
 type Props = {
   points: JeddahPoint[];
@@ -40,6 +41,7 @@ function pointCollection(
           label: point.label,
           traffic_level: level?.traffic_level ?? "Unknown",
           speed_kmh: level?.speed_kmh ?? null,
+          ratio_text: level ? ratioPercent(level.speed_ratio) : null,
           selected: point.point_id === selectedPointId,
         },
       };
@@ -124,9 +126,10 @@ export default function JeddahMap({ points, levels, selectedPointId, onSelect }:
         const props = event.features?.[0]?.properties;
         if (!props) return;
         const speed = props.speed_kmh == null || props.speed_kmh === "null" ? "" : ` · ${Math.round(Number(props.speed_kmh))} km/h`;
+        const ratio = props.ratio_text == null || props.ratio_text === "null" ? "" : ` (${props.ratio_text} of free flow)`;
         popup
           .setLngLat(event.lngLat)
-          .setText(`${props.label} — ${props.traffic_level}${speed}`)
+          .setText(`${props.label} — ${props.traffic_level}${speed}${ratio}`)
           .addTo(map);
       });
       map.on("mouseleave", "jeddah-point-dots", () => {
@@ -172,7 +175,7 @@ export default function JeddahMap({ points, levels, selectedPointId, onSelect }:
       <div className="map-data-status">
         <span className="map-data-dot" />
         {points.length
-          ? `${points.length} TomTom measurement points on 3 Jeddah roads`
+          ? `${points.length} TomTom measurement points on ${new Set(points.map((p) => p.road)).size} Jeddah roads`
           : "Loading Jeddah measurement points…"}
       </div>
     </div>

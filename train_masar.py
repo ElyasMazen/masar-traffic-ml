@@ -240,6 +240,8 @@ def choose_horizon(results: pd.DataFrame, splits: list[dict]) -> dict:
         "margin": margin[(primary, h)],
         "beats_persistence": beats,
         "rule": f"horizon with the largest Random Forest - persistence macro-F1 margin on '{labels[primary]}'",
+        "f1_noise": F1_NOISE,
+        "horizons_not_beating_persistence": losing,
         "sentence": sentence,
         "comparison": comparison,
     }
@@ -292,7 +294,7 @@ def choose_time_method(results: pd.DataFrame, primary: str) -> dict:
 
 # ---------------------------------------------------------------- audit
 
-def audit(d: pd.DataFrame, out: Path) -> dict:
+def audit(d: pd.DataFrame, out: Path, rows_dropped: dict) -> dict:
     runs = pd.Series(np.sort(d["ts"].unique()))
     gaps = runs.diff().dt.total_seconds().div(60)
     big = pd.DataFrame({"gap_start": runs.shift(1), "gap_end": runs, "gap_min": gaps.round(2)})
@@ -310,6 +312,7 @@ def audit(d: pd.DataFrame, out: Path) -> dict:
     weekend = day_list.dt.dayofweek.isin(mf.WEEKEND_DAYS)
     result = {
         "rows": int(len(d)),
+        "rows_dropped": rows_dropped,
         "runs": int(len(runs)),
         "points": int(d["point_id"].nunique()),
         "roads": int(d["road"].nunique()),
@@ -479,7 +482,7 @@ def main():
     if info["snapshot"] and args.csv is None:
         print(f"  saved snapshot: {info['snapshot']}")
 
-    audit_info = audit(d, out)
+    audit_info = audit(d, out, info["rows_dropped"])
     splits = define_splits(d)
     for sp in splits:
         print(f"Split '{sp['name']}': train < {sp['train_end']}, test {sp['test_start']} -> {sp['test_end']}")
@@ -504,6 +507,8 @@ def main():
             "test_start": str(test["ts"].min()), "test_end": str(test["ts"].max()),
             "train_readings": int(len(train)), "test_readings": int(len(test)),
             "test_daytypes": "+".join(sorted(set(test["daytype"]))),
+            "test_weekend_days": [f"{x:%a %d %b}" for x in sorted(test.loc[test["daytype"] == "weekend", "ts"].dt.normalize().unique())],
+            "test_weekdays": [f"{x:%a %d %b}" for x in sorted(test.loc[test["daytype"] == "weekday", "ts"].dt.normalize().unique())],
         })
     pd.DataFrame(split_rows).to_csv(out / "split_summary.csv", index=False)
     primary_row = next(r for r in split_rows if r["split"] == selected_h["primary_split"])

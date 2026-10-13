@@ -9,8 +9,10 @@ import {
   formatDateRange,
   formatDateTime,
   formatHour,
+  horizonTitle,
   isoDate,
   levelClass,
+  ratioPercent,
   toDate,
 } from "@/lib/format";
 import {
@@ -48,23 +50,28 @@ function pct(value: number | null | undefined) {
   return value == null ? "n/a" : `${Math.round(value * 100)}%`;
 }
 
-/** "+6 min" and "19 min instead of 13 min at free flow", in one consistent unit. */
+/**
+ * "+8 min (21 min instead of 13 min at free flow)". The delay is rounded once,
+ * from the exact seconds; the travel time shown is free flow + that delay, so
+ * the two parts of the text always agree.
+ */
 function delayText(travelS: number, freeFlowS: number) {
-  if (Math.max(travelS, freeFlowS) >= 120) {
-    const t = Math.round(travelS / 60);
-    const f = Math.round(freeFlowS / 60);
-    return { delta: `+${t - f} min`, detail: `(${t} min instead of ${f} min at free flow)` };
-  }
-  const t = Math.round(travelS);
-  const f = Math.round(freeFlowS);
-  return { delta: `+${t - f} s`, detail: `(${t} s instead of ${f} s at free flow)` };
+  const minutes = Math.max(travelS, freeFlowS) >= 120;
+  const unit = minutes ? 60 : 1;
+  const label = minutes ? "min" : "s";
+  const delay = Math.round((travelS - freeFlowS) / unit);
+  const free = Math.round(freeFlowS / unit);
+  return {
+    delta: `+${delay} ${label}`,
+    detail: `(${free + delay} ${label} instead of ${free} ${label} at free flow)`,
+  };
 }
 
 /** Random Forest level for latest reading + horizon, always labelled with the reading it starts from. */
 function NextHourCard({ forecast, horizon }: { forecast: ShortTermPoint | null; horizon: number }) {
   return (
     <div className="result-card result-card-safety">
-      <span>Next hour · +{horizon} min from latest reading</span>
+      <span>{horizonTitle(horizon)} · +{horizon} min from latest reading</span>
       {forecast ? (
         <>
           <strong className={`level-text-${forecast.predicted_level.toLowerCase()}`}>{forecast.predicted_level}</strong>
@@ -98,6 +105,7 @@ export default function JeddahWorkspace({
   const [hour, setHour] = useState(17);
   const [levels, setLevels] = useState<Record<string, JeddahLevel>>({});
   const [simulation, setSimulation] = useState<JeddahSimulation | null>(null);
+  const [predictedAt, setPredictedAt] = useState(0); // when "Predict traffic" was pressed (ms)
   const [loading, setLoading] = useState(true);
   const [simulating, setSimulating] = useState(false);
   const [error, setError] = useState("");
@@ -144,6 +152,7 @@ export default function JeddahWorkspace({
     setError("");
     try {
       const result = await jeddahApi.simulate(selectedId, date, hour);
+      setPredictedAt(Date.now());
       setSimulation(result);
       window.setTimeout(() => {
         document.getElementById("simulation-output")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -214,13 +223,49 @@ export default function JeddahWorkspace({
       : false;
   const selectedNext = shortTerm?.points.find((p) => p.point_id === selectedId) ?? null;
 
+  // The selected hour had fully passed when the user pressed Predict: what is shown is still a prediction.
+  const selectedIsPast = simulation
+    ? toDate(simulation.datetime).getTime() + 60 * 60 * 1000 <= predictedAt
+    : false;
+
+  // Built from results.json so the wording follows any retrain.
+  const horizonNote = useMemo(() => {
+    if (!selection) return "";
+    const losing = selection.horizons_not_beating_persistence ?? [];
+    const shown = `only +${selection.horizon_min} min is shown`;
+    if (!losing.length) return `+${selection.horizon_min} min has the largest margin over persistence, so ${shown}.`;
+    const list = losing.map((h) => `+${h}`).join(" and ");
+    return `At ${list} min the model does not beat persistence on the main test, so ${shown}.`;
+  }, [selection]);
+
+  const weekendNote = useMemo(() => {
+    if (!summary || !selection) return "";
+    const main = summary.splits.find((s) => s.split === selection.primary_split);
+    const days = main?.test_weekend_days ?? [];
+    if (!days.length) return "The main test contains no weekend day.";
+    const high = summary.short_term.results.find(
+      (r) =>
+        r.split === selection.primary_split &&
+        r.horizon_min === selection.horizon_min &&
+        r.subset === "weekend" &&
+        r.method === "random_forest",
+    )?.support_High;
+    const dayText = days.length === 1 ? `a single weekend day (${days[0]})` : `${days.length} weekend days (${days.join(", ")})`;
+    const highText = high == null ? "" : ` with ${high} High reading${high === 1 ? "" : "s"} at +${selection.horizon_min} min`;
+    const noisy = high != null && high < 30 ? ", so its numbers are especially noisy" : "";
+    return `The weekend part of the main test is ${dayText}${highText}${noisy}.`;
+  }, [summary, selection]);
+
   return (
     <>
       <section className="workspace prototype-workspace">
         <aside className="control-card">
           <div className="section-kicker">TRAFFIC SIMULATION</div>
           <h2>Choose a road and time</h2>
-          <p className="muted">Pick one of Masar&apos;s 10 TomTom measurement points, or click a dot on the map.</p>
+          <p className="muted">
+            Pick one of Masar&apos;s {points.length} TomTom measurement points on {roads.length} roads, or click a dot on
+            the map.
+          </p>
 
           <CitySelect city={city} onChange={onCityChange} />
 
@@ -377,7 +422,7 @@ export default function JeddahWorkspace({
               </div>
               <div className="result-card">
                 <span>Speed vs free flow</span>
-                <strong>{pct(simulation.predicted_speed_ratio)}</strong>
+                <strong>{ratioPercent(simulation.predicted_speed_ratio)}</strong>
                 <small>Low ≥ 85% · High &lt; 60%</small>
               </div>
               <div className="result-card">
@@ -396,6 +441,11 @@ export default function JeddahWorkspace({
                 <NextHourCard forecast={simulation.short_term} horizon={simulation.short_term_horizon_min} />
               )}
             </div>
+            <p className="date-note">
+              This prediction depends only on the day type ({simulation.day_type}) and the hour, not on the specific
+              date.
+              {selectedIsPast && " This is a prediction, not the observed value."}
+            </p>
 
             <div className="chart-card simple-chart-card">
               <div className="chart-header">
@@ -416,8 +466,8 @@ export default function JeddahWorkspace({
                 seriesName="Expected speed"
               />
               <p className="confidence-note">
-                <strong>Confidence: {simulation.prediction_confidence.level}.</strong>{" "}
-                {simulation.prediction_confidence.detail}
+                <strong>Data coverage: {simulation.data_coverage.summary}.</strong>
+                {simulation.data_coverage.note && ` ${simulation.data_coverage.note}`}
               </p>
             </div>
           </>
@@ -429,7 +479,7 @@ export default function JeddahWorkspace({
           <div className="results-header">
             <div>
               <div className="section-kicker">SHORT-TERM FORECAST</div>
-              <h2>Next hour (from latest reading)</h2>
+              <h2>{horizonTitle(shortTerm.horizon_min)} (from latest reading)</h2>
               <p className="results-sub">
                 Latest reading: {formatDateTime(shortTerm.latest_timestamp)}. Forecast for{" "}
                 {formatDateTime(shortTerm.points[0]?.forecast_for ?? shortTerm.latest_timestamp)} (+{horizon} min), by the
@@ -470,8 +520,8 @@ export default function JeddahWorkspace({
                 </table>
               </div>
               <small>
-                Model probability is the forest&apos;s average class probability, not a calibrated confidence. At +10 and
-                +30 min the model does not beat persistence, so only +{horizon} min is shown.
+                Model probability is the forest&apos;s average class probability, not a calibrated confidence.{" "}
+                {horizonNote}
               </small>
             </div>
           </div>
@@ -589,8 +639,7 @@ export default function JeddahWorkspace({
                 </table>
               </div>
               <small>
-                F1 = macro-F1 over Low / Medium / High. n = High readings in that test. The weekend part of the main test is
-                a single Saturday with very few High readings, so its numbers are especially noisy. All results are
+                F1 = macro-F1 over Low / Medium / High. n = High readings in that test. {weekendNote} All results are
                 pilot-only and indicative.
               </small>
             </div>

@@ -29,10 +29,6 @@ RESULTS_PATH = REPO_ROOT / "outputs" / "results.json"
 MODEL_DIR = REPO_ROOT / "models"
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-NOTICE = (
-    "Pilot prediction from TomTom readings collected for Masar in Jeddah. "
-    "Only a few days of data so far - not live traffic and not final accuracy."
-)
 
 
 def _road_short(road: str) -> str:
@@ -107,7 +103,8 @@ class JeddahService:
         for pid, ratio in zip(ids, self._ratios([(pid, dt) for pid in ids])):
             out.append({
                 "point_id": pid,
-                "speed_ratio": round(float(ratio), 3),
+                # Unrounded: the page truncates it for display so it always agrees with the level.
+                "speed_ratio": float(ratio),
                 "speed_kmh": round(float(ratio) * self.catalog[pid]["free_flow_speed_kmh"], 1),
                 "traffic_level": mf.classify(float(ratio)),
             })
@@ -138,48 +135,52 @@ class JeddahService:
             "datetime": dt.isoformat(),
             "day_type": daytype,
             "predicted_speed_kmh": round(ratio * ffs, 1),
-            "predicted_speed_ratio": round(ratio, 3),
+            "predicted_speed_ratio": ratio,
             "free_flow_speed_kmh": round(ffs, 1),
             "traffic_level": mf.classify(ratio),
-            "expected_travel_time_s": round(travel),
-            "free_flow_travel_time_s": round(fftt),
+            # Exact seconds; the page rounds the delay once, at the end.
+            "expected_travel_time_s": travel,
+            "free_flow_travel_time_s": fftt,
             "historical_range": {
                 "lower_speed_kmh": None if p25 is None else round(p25 * ffs, 1),
                 "upper_speed_kmh": None if p75 is None else round(p75 * ffs, 1),
                 "days_observed": days,
             },
-            "prediction_confidence": self._confidence(days, dt.weekday(), daytype),
+            "data_coverage": self._coverage(days, dt.weekday(), daytype),
             "method": {"key": self.time_state["method"], "label": self.time_state["label"]},
             "forecast": [
                 {
                     "datetime": h.isoformat(),
                     "hour": h.hour,
                     "speed_kmh": round(float(r) * ffs, 1),
-                    "speed_ratio": round(float(r), 3),
+                    "speed_ratio": float(r),
                     "level": mf.classify(float(r)),
                 }
                 for h, r in zip(hours, ratios)
             ],
             "short_term": next((p for p in self.short_term["points"] if p["point_id"] == point_id), None),
             "short_term_horizon_min": self.horizon,
-            "notice": NOTICE,
         }
 
-    def _confidence(self, days: int, dow: int, daytype: str) -> dict:
-        kind = "weekend" if daytype == "weekend" else "weekday (Sun-Thu)"
-        detail = f"{days} {kind} day{'s' if days != 1 else ''} of readings exist for this point at this hour."
+    def _coverage(self, days: int, dow: int, daytype: str) -> dict:
+        """How many days of readings back this point/hour/day type - a count, not a confidence."""
+        kind = "weekend day" if daytype == "weekend" else "weekday"
+        summary = f"{days} {kind}{'s' if days != 1 else ''} observed at this hour"
+        notes = []
         if dow not in self.weekdays_with_data:
             if daytype == "weekday":
-                detail += (
-                    f" No {DAY_NAMES[dow]} has been collected yet, so this uses the weekday (Sun-Thu) "
+                notes.append(
+                    f"No {DAY_NAMES[dow]} has been collected yet, so this uses the weekday (Sun-Thu) "
                     "pattern for this hour - never weekend days."
                 )
             else:
-                detail += f" No {DAY_NAMES[dow]} has been collected yet, so this uses the Fri/Sat weekend pattern."
+                notes.append(f"No {DAY_NAMES[dow]} has been collected yet, so this uses the Fri/Sat weekend pattern.")
         if days == 0:
-            detail += " With no readings of this day type at this hour, it falls back to the all-days average for this hour."
-        level = "Medium" if days >= 3 else "Low"
-        return {"level": level, "detail": detail, "days_observed": days}
+            notes.append(
+                f"There are no {daytype} readings for this point at this hour, so it falls back to the "
+                "all-days average for this hour."
+            )
+        return {"days_observed": days, "summary": summary, "note": " ".join(notes)}
 
     # ---------------------------------------------------------- short term
 
@@ -196,7 +197,7 @@ class JeddahService:
                 "point_id": row.point_id,
                 "latest_timestamp": pd.Timestamp(row.ts).isoformat(),
                 "forecast_for": pd.Timestamp(row.target_time).isoformat(),
-                "latest_speed_ratio": round(float(row.speed_ratio_t), 3),
+                "latest_speed_ratio": float(row.speed_ratio_t),
                 "persistence_level": row.congestion_level,
                 "predicted_level": classes[int(proba[i].argmax())],
                 "model_probability": round(float(proba[i].max()), 3),

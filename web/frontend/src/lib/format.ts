@@ -42,6 +42,21 @@ export function isoDate(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/**
+ * Speed ratio as a percentage with one decimal, TRUNCATED (not rounded), so it
+ * always agrees with the level thresholds: 0.5997 -> "59.9%" (High), 0.85 -> "85.0%".
+ */
+export function ratioPercent(ratio: number | null | undefined) {
+  if (ratio == null) return "n/a";
+  // The small epsilon keeps exact values such as 0.85 * 1000 = 849.999... at 85.0.
+  return `${(Math.floor(ratio * 1000 + 1e-9) / 10).toFixed(1)}%`;
+}
+
+/** Text for a horizon: "Next hour" for 60 min, otherwise "Next 30 min". */
+export function horizonTitle(minutes: number) {
+  return minutes === 60 ? "Next hour" : `Next ${minutes} min`;
+}
+
 export function levelClass(level?: string) {
   return `level-pill level-${(level ?? "low").toLowerCase()}`;
 }

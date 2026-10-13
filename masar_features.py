@@ -36,6 +36,8 @@ HORIZONS_MIN = (10, 30, 60)
 # --------------------------------------------------------------------- labels
 
 def classify(speed_ratio: float) -> str:
+    if np.isnan(speed_ratio):
+        raise ValueError("speed_ratio is NaN; cannot assign a congestion level")
     if speed_ratio >= LOW_MIN_RATIO:
         return "Low"
     if speed_ratio >= MEDIUM_MIN_RATIO:
@@ -45,6 +47,9 @@ def classify(speed_ratio: float) -> str:
 
 def classify_many(ratios) -> np.ndarray:
     r = np.asarray(ratios, dtype=float)
+    if np.isnan(r).any():
+        # NaN >= x is False, so np.where would silently call it "High".
+        raise ValueError(f"{int(np.isnan(r).sum())} speed_ratio value(s) are NaN; cannot assign congestion levels")
     return np.where(r >= LOW_MIN_RATIO, "Low", np.where(r >= MEDIUM_MIN_RATIO, "Medium", "High"))
 
 
@@ -85,6 +90,8 @@ def load_data(csv: str | Path | None = None, snapshot_dir: str | Path | None = N
         "snapshot": snapshot,
         "loaded_at": datetime.now().isoformat(timespec="seconds"),
         "rows": int(len(d)),
+        "rows_raw": int(len(frame)),
+        "rows_dropped": d.attrs["rows_dropped"],
         "points": int(d["point_id"].nunique()),
         "first_reading": str(d["ts"].min()),
         "last_reading": str(d["ts"].max()),
@@ -94,13 +101,37 @@ def load_data(csv: str | Path | None = None, snapshot_dir: str | Path | None = N
 
 
 def prepare(frame: pd.DataFrame) -> pd.DataFrame:
+    """Parse, drop invalid rows and duplicates, add calendar columns and labels.
+
+    The number of rows dropped by each rule is kept in d.attrs["rows_dropped"].
+    """
     d = frame.copy()
     d["ts"] = pd.to_datetime(d["timestamp_local"])
+    ratio = pd.to_numeric(d["speed_ratio"], errors="coerce")
+    current = pd.to_numeric(d["current_speed_kmh"], errors="coerce")
+    free_flow = pd.to_numeric(d["free_flow_speed_kmh"], errors="coerce")
+    rules = {
+        "speed_ratio_missing": ratio.isna(),
+        "speed_ratio_out_of_range": ratio.notna() & ((ratio <= 0) | (ratio > 1)),
+        "current_speed_missing_or_le_0": current.isna() | (current <= 0),
+        "free_flow_speed_missing_or_le_0": free_flow.isna() | (free_flow <= 0),
+    }
+    bad = np.zeros(len(d), dtype=bool)
+    dropped = {}
+    for name, mask in rules.items():
+        mask = mask.to_numpy() & ~bad          # count each row under its first failing rule
+        dropped[name] = int(mask.sum())
+        bad |= mask
+    d = d[~bad]
+    before = len(d)
     d = d.drop_duplicates(["point_id", "ts"]).sort_values(["point_id", "ts"]).reset_index(drop=True)
+    dropped["duplicate_point_timestamp"] = before - len(d)
+    dropped["total"] = sum(dropped.values())
     d["hour"] = d["ts"].dt.hour
     d["dow"] = d["ts"].dt.dayofweek
     d["daytype"] = day_type(d["dow"])
     d["congestion_level"] = classify_many(d["speed_ratio"])
+    d.attrs["rows_dropped"] = dropped
     return d
 
 

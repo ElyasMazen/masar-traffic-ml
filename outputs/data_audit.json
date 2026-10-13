@@ -1,5 +1,13 @@
 {
   "rows": 11150,
+  "rows_dropped": {
+    "speed_ratio_missing": 0,
+    "speed_ratio_out_of_range": 0,
+    "current_speed_missing_or_le_0": 0,
+    "free_flow_speed_missing_or_le_0": 0,
+    "duplicate_point_timestamp": 0,
+    "total": 0
+  },
   "runs": 1115,
   "points": 10,
   "roads": 3,
