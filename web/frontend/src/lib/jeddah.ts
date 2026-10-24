@@ -25,7 +25,10 @@ export type JeddahLevel = {
 
 export type ShortTermPoint = {
   point_id: string;
+  /** Grid slot of the newest reading. */
   latest_timestamp: string;
+  /** Actual collection time of that reading. */
+  latest_reading_time?: string;
   forecast_for: string;
   latest_speed_ratio: number;
   persistence_level: RiskLevel;
@@ -58,6 +61,7 @@ export type ShortTermSelection = {
 
 export type ShortTerm = {
   horizon_min: number;
+  step_min?: number;
   model: string;
   latest_timestamp: string;
   selected: ShortTermSelection;
@@ -125,6 +129,9 @@ export type JeddahSummary = {
     loaded_at: string;
     weekdays: string[];
     weekend_days: string[];
+    rows_raw?: number;
+    step_min?: number;
+    horizons_min?: number[];
   };
   models: {
     evaluated: ModelPeriod & { split: string; test_start: string; test_end: string };

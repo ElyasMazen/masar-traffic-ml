@@ -38,6 +38,9 @@ def _road_short(road: str) -> str:
 class JeddahService:
     def __init__(self) -> None:
         self.results = json.loads(RESULTS_PATH.read_text(encoding="utf-8"))
+        # Use the grid step the models were trained with (older results: 10 min).
+        self.step = int(self.results.get("step", {}).get("step_min", 10))
+        mf.set_step(self.step)
         # The exact snapshot the models were trained on (repo-relative path in results.json).
         self.readings = mf.prepare(pd.read_csv(REPO_ROOT / self.results["data"]["snapshot"]))
         self.weekdays_with_data = set(self.results["data"]["weekdays_with_data"])
@@ -83,7 +86,8 @@ class JeddahService:
     # ------------------------------------------------------- time of day
 
     def _ratios(self, rows: list[tuple[str, datetime]]) -> np.ndarray:
-        """Hour-level speed ratio: mean of the six 10-minute slots in each hour."""
+        """Hour-level speed ratio: mean over the grid slots in each hour (2 at step 30, 6 at step 10)."""
+        minutes = range(0, 60, self.step)
         frame = pd.DataFrame([
             {
                 "point_id": pid,
@@ -92,9 +96,9 @@ class JeddahService:
                 "frc": self.catalog[pid]["frc"],
             }
             for pid, dt in rows
-            for minute in range(0, 60, 10)
+            for minute in minutes
         ])
-        return mf.time_of_day_ratio(self.time_state, frame).reshape(len(rows), 6).mean(axis=1)
+        return mf.time_of_day_ratio(self.time_state, frame).reshape(len(rows), len(minutes)).mean(axis=1)
 
     def levels(self, sim_date: date, hour: int) -> list[dict]:
         dt = datetime.combine(sim_date, datetime.min.time()).replace(hour=hour)
@@ -195,7 +199,8 @@ class JeddahService:
         for i, row in enumerate(x.itertuples(index=False)):
             points.append({
                 "point_id": row.point_id,
-                "latest_timestamp": pd.Timestamp(row.ts).isoformat(),
+                "latest_timestamp": pd.Timestamp(row.ts).isoformat(),            # grid slot
+                "latest_reading_time": pd.Timestamp(row.reading_ts).isoformat(),  # actual collection time
                 "forecast_for": pd.Timestamp(row.target_time).isoformat(),
                 "latest_speed_ratio": float(row.speed_ratio_t),
                 "persistence_level": row.congestion_level,
@@ -205,6 +210,7 @@ class JeddahService:
             })
         return {
             "horizon_min": self.horizon,
+            "step_min": self.step,
             "model": "Random Forest (class_weight=balanced)",
             "latest_timestamp": max(p["latest_timestamp"] for p in points),
             "selected": self.results["short_term"]["selected"],
@@ -220,11 +226,13 @@ class JeddahService:
         return {
             "data": {
                 **{k: r["data"][k] for k in (
-                    "source", "rows", "points", "first_reading", "last_reading", "days",
+                    "source", "rows", "rows_raw", "points", "first_reading", "last_reading", "days",
                     "day_names", "trained_through", "loaded_at",
                 )},
                 "weekdays": audit["weekdays"],
                 "weekend_days": audit["weekend_days"],
+                "step_min": self.step,
+                "horizons_min": r.get("step", {}).get("horizons_min", [10, 30, 60]),
             },
             "models": r["models"],
             "splits": r["splits"],

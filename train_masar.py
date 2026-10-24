@@ -3,12 +3,14 @@ Masar pilot training and evaluation.
 
     python train_masar.py                       # raw GitHub CSV, saved to data/snapshots/
     python train_masar.py --csv snapshot.csv    # a local snapshot instead
+    python train_masar.py --step 10             # 10-min grid instead of the default 30-min grid
 
 Reading the raw GitHub CSV is read-only. Never call the TomTom API and never
 write to the data repo.
 
 Evaluates, on chronological splits only (train on earlier time, test later):
-  A. short-term congestion level at +10/+30/+60 min:
+  A. short-term congestion level at each horizon that is a multiple of the step
+     (step 30: +30/+60 min; step 10: +10/+30/+60 min):
      persistence vs historical average vs Random Forest (class_weight="balanced")
   B. time-of-day speed for any date/hour (cards, map, 12-hour chart):
      gradient-boosting time model vs point x hour vs point x hour x weekday/weekend average
@@ -75,6 +77,16 @@ def make_time_model() -> HistGradientBoostingRegressor:
 
 # ---------------------------------------------------------------- splits
 
+def full_weekend(d: pd.DataFrame, friday: pd.Timestamp, min_share: float = 0.8) -> bool:
+    """True if Friday and the following Saturday each have >= min_share of the expected readings."""
+    expected = d["point_id"].nunique() * (24 * 60 // mf.STEP_MIN)
+    for day in (friday, friday + pd.Timedelta(days=1)):
+        n = int(((d["ts"] >= day) & (d["ts"] < day + pd.Timedelta(days=1))).sum())
+        if n < min_share * expected:
+            return False
+    return True
+
+
 def define_splits(d: pd.DataFrame) -> list[dict]:
     ts = np.sort(d["ts"].unique())
     cut = pd.Timestamp(ts[int(len(ts) * 0.80)])
@@ -86,13 +98,33 @@ def define_splits(d: pd.DataFrame) -> list[dict]:
         "test_end": d["ts"].max() + pd.Timedelta(seconds=1),
     }]
 
-    # Main test: hold out the last 3+ days, starting at midnight of the latest
-    # weekend day that still leaves 3 days of test data, so the test holds both
-    # weekdays and a weekend day. Train on everything before it.
+    # Main test: start at midnight of the most recent Friday such that the test
+    # holds that full Fri+Sat weekend AND the training part holds at least one
+    # full Fri+Sat weekend of its own. Train on everything before it.
     first, last = d["ts"].min(), d["ts"].max()
-    days = pd.date_range(first.normalize() + pd.Timedelta(days=1), last.normalize(), freq="D")
-    starts = [day for day in days if day.dayofweek in mf.WEEKEND_DAYS and last - day >= pd.Timedelta(days=3)]
-    start = max(starts) if starts else last.normalize() - pd.Timedelta(days=3)
+    fridays = [day for day in pd.date_range(first.normalize(), last.normalize(), freq="D")
+               if day.dayofweek == mf.WEEKEND_DAYS[0]]
+    full = [f for f in fridays if full_weekend(d, f)]
+    candidates = [f for f in full if any(g + pd.Timedelta(days=2) <= f for g in full)]
+    if candidates:
+        start = max(candidates)
+        rule = {
+            "rule": "test starts at midnight of the most recent Friday whose full Fri+Sat weekend is in the "
+                    "test, with at least one full Fri+Sat weekend in training",
+            "fallback": False,
+            "note": "",
+        }
+    else:
+        # Fallback: the latest weekend day that still leaves 3 days of test data.
+        days = pd.date_range(first.normalize() + pd.Timedelta(days=1), last.normalize(), freq="D")
+        starts = [day for day in days if day.dayofweek in mf.WEEKEND_DAYS and last - day >= pd.Timedelta(days=3)]
+        start = max(starts) if starts else last.normalize() - pd.Timedelta(days=3)
+        rule = {
+            "rule": "fallback: test starts at midnight of the latest weekend day that leaves 3+ days of test data",
+            "fallback": True,
+            "note": "No Friday has a full Fri+Sat weekend in the test and another one in training "
+                    f"(full weekends found: {', '.join(f'{f:%a %d %b}' for f in full) or 'none'}).",
+        }
     if start > first:
         n_days = (last.normalize() - start).days + 1
         splits.insert(0, {
@@ -101,7 +133,15 @@ def define_splits(d: pd.DataFrame) -> list[dict]:
             "train_end": start,
             "test_start": start,
             "test_end": last + pd.Timedelta(seconds=1),
+            "split_rule": rule,
         })
+        # The latest-20% test adds nothing when it starts (almost) where the main
+        # test starts: it would be the same test counted twice.
+        latest = next(sp for sp in splits if sp["name"] == "latest")
+        if abs(latest["test_start"] - start) < pd.Timedelta(days=1):
+            splits.remove(latest)
+            rule["latest_split"] = (f"skipped: the latest 20% of time would start at {latest['test_start']:%a %d %b %H:%M}, "
+                                    "within a day of the main test, so it would repeat the same test")
     return splits
 
 
@@ -200,7 +240,8 @@ def choose_horizon(results: pd.DataFrame, splits: list[dict]) -> dict:
     others = [s for s in names if s != primary]
     # "Beats" needs a margin above noise on the primary test AND no loss on the others.
     if margin[(primary, h)] > F1_NOISE and all(margin[(s, h)] > 0 for s in others):
-        verdict, beats = "Overall, the model beats persistence at this horizon, by a small margin, on every test set.", True
+        where = "on every test set" if others else "on the test set"
+        verdict, beats = f"Overall, the model beats persistence at this horizon, by a small margin, {where}.", True
     elif margin[(primary, h)] >= -F1_NOISE:
         verdict, beats = "That is within noise: the model does not clearly beat persistence.", False
     else:
@@ -298,8 +339,9 @@ def audit(d: pd.DataFrame, out: Path, rows_dropped: dict) -> dict:
     runs = pd.Series(np.sort(d["ts"].unique()))
     gaps = runs.diff().dt.total_seconds().div(60)
     big = pd.DataFrame({"gap_start": runs.shift(1), "gap_end": runs, "gap_min": gaps.round(2)})
-    big = big[big["gap_min"] > 15]
-    big.to_csv(out / "gaps_over_15min.csv", index=False)
+    gap_limit = 1.5 * mf.STEP_MIN   # more than one missing grid step
+    big = big[big["gap_min"] > gap_limit]
+    big.to_csv(out / "collection_gaps.csv", index=False)
     d[d["road_closure"].astype(str).str.lower() == "true"].to_csv(out / "road_closure_rows_for_review.csv", index=False)
     dist = d["congestion_level"].value_counts().reindex(LABELS).fillna(0).astype(int)
     dist.rename("rows").to_frame().assign(percent=lambda x: (100 * x["rows"] / x["rows"].sum()).round(2)) \
@@ -319,7 +361,9 @@ def audit(d: pd.DataFrame, out: Path, rows_dropped: dict) -> dict:
         "first_reading": str(d["ts"].min()),
         "last_reading": str(d["ts"].max()),
         "readings_per_day": {str(k.date()): int(v) for k, v in d.groupby(d["ts"].dt.normalize()).size().items()},
-        "gaps_over_15min": int(len(big)),
+        "step_min": mf.STEP_MIN,
+        "gap_limit_min": gap_limit,
+        "gaps": int(len(big)),
         "max_gap_min": float(gaps.max()),
         "road_closure_rows": int((d["road_closure"].astype(str).str.lower() == "true").sum()),
         "calendar_days": int(len(day_list)),
@@ -339,7 +383,7 @@ METHOD_COLORS = {"persistence": "#8a96a3", "historical": "#d6a13b", "random_fore
 
 
 def chart_short_term(results: pd.DataFrame, splits, metric: str, title: str, path: Path):
-    fig, axes = plt.subplots(1, len(splits), figsize=(6 * len(splits), 4.2), squeeze=False)
+    fig, axes = plt.subplots(1, len(splits), figsize=(max(6 * len(splits), 11), 4.2), squeeze=False)
     overall = results[results["subset"] == "all"]
     width = 0.26
     for ax, sp in zip(axes[0], splits):
@@ -386,14 +430,14 @@ def chart_confusions(cms: pd.DataFrame, sp: dict, h: int, path: Path):
 
 
 def chart_time_of_day(results: pd.DataFrame, splits, path: Path):
-    fig, axes = plt.subplots(1, len(splits), figsize=(6 * len(splits), 4), squeeze=False)
+    fig, axes = plt.subplots(1, len(splits), figsize=(max(6 * len(splits), 11), 4), squeeze=False)
     colors = ["#0d5a4e", "#8a96a3", "#d6a13b"]
     for ax, sp in zip(axes[0], splits):
         r = results[(results["split"] == sp["name"]) & (results["subset"] == "all")]
         names = [mf.TIME_OF_DAY_METHODS[m].replace("Historical average", "Hist. avg") for m in r["method"]]
         bars = ax.barh(names, r["mae_speed_kmh"], color=colors[: len(r)])
         for b, (mae, acc) in zip(bars, zip(r["mae_speed_kmh"], r["accuracy"])):
-            ax.text(b.get_width() + 0.2, b.get_y() + b.get_height() / 2, f"±{mae:.1f} km/h · acc {acc:.0%}",
+            ax.text(b.get_width() + 0.2, b.get_y() + b.get_height() / 2, f"±{mae:.2f} km/h · acc {acc:.0%}",
                     va="center", fontsize=8)
         ax.set_xlabel("speed error (MAE, km/h) - lower is better")
         ax.set_title(f"{sp['label']} (test: {r['test_daytypes'].iloc[0]})", fontsize=10)
@@ -465,7 +509,10 @@ def main():
     ap.add_argument("--snapshot-dir", default=str(ROOT / "data" / "snapshots"),
                     help="Where downloaded copies are saved as dated snapshots.")
     ap.add_argument("--out", default=str(ROOT), help="Folder that receives outputs/, charts/ and models/.")
+    ap.add_argument("--step", type=int, default=mf.DEFAULT_STEP_MIN,
+                    help=f"Grid step in minutes (default {mf.DEFAULT_STEP_MIN}); readings are resampled to it.")
     args = ap.parse_args()
+    mf.set_step(args.step)
 
     base = Path(args.out)
     out, charts, models = base / "outputs", base / "charts", base / "models"
@@ -479,6 +526,8 @@ def main():
             info[key] = Path(info[key]).relative_to(ROOT).as_posix()
     print(f"Loaded {info['rows']:,} readings from {info['source']}")
     print(f"  {info['first_reading']} -> {info['last_reading']} ({info['days']} calendar days)")
+    print(f"  step {mf.STEP_MIN} min: {info['resampling']['rows_before']:,} readings -> "
+          f"{info['resampling']['rows_after']:,} grid readings; horizons {mf.HORIZONS_MIN}")
     if info["snapshot"] and args.csv is None:
         print(f"  saved snapshot: {info['snapshot']}")
 
@@ -509,6 +558,7 @@ def main():
             "test_daytypes": "+".join(sorted(set(test["daytype"]))),
             "test_weekend_days": [f"{x:%a %d %b}" for x in sorted(test.loc[test["daytype"] == "weekend", "ts"].dt.normalize().unique())],
             "test_weekdays": [f"{x:%a %d %b}" for x in sorted(test.loc[test["daytype"] == "weekday", "ts"].dt.normalize().unique())],
+            **({"split_rule": sp["split_rule"]} if "split_rule" in sp else {}),
         })
     pd.DataFrame(split_rows).to_csv(out / "split_summary.csv", index=False)
     primary_row = next(r for r in split_rows if r["split"] == selected_h["primary_split"])
@@ -529,7 +579,7 @@ def main():
         s = mf.add_usual(mf.horizon_samples(d, h), usual_all)
         model = make_rf().fit(s[FEATURES], s["target_level"])
         joblib.dump({
-            "pipeline": model, "features": FEATURES, "horizon_min": h,
+            "pipeline": model, "features": FEATURES, "horizon_min": h, "step_min": mf.STEP_MIN,
             "usual": usual_all, "trained_from": info["first_reading"], "trained_through": info["last_reading"],
         }, models / f"short_term_rf_{h}min.joblib", compress=3)
         if h == selected_h["horizon_min"]:
@@ -540,7 +590,7 @@ def main():
         for i, row in enumerate(latest.itertuples(index=False)):
             latest_rows.append({
                 "horizon_min": h, "road": row.road, "point_id": row.point_id,
-                "latest_reading": row.ts, "forecast_for": row.target_time,
+                "latest_slot": row.ts, "latest_reading": row.reading_ts, "forecast_for": row.target_time,
                 "latest_level": row.congestion_level, "predicted_level": model.classes_[proba[i].argmax()],
                 **{f"prob_{c}": round(float(p), 4) for c, p in zip(model.classes_, proba[i])},
             })
@@ -550,6 +600,7 @@ def main():
     joblib.dump({
         **final_states[selected_t["method"]],
         "label": selected_t["label"],
+        "step_min": mf.STEP_MIN,
         "trained_from": info["first_reading"],
         "trained_through": info["last_reading"],
     }, models / "time_of_day.joblib", compress=3)
@@ -577,6 +628,13 @@ def main():
                 "train_start": info["first_reading"], "train_end": info["last_reading"], "rows": info["rows"],
                 "note": "Refitted on all readings (train + test) after evaluation; used for every prediction in the app.",
             },
+        },
+        "step": {
+            "step_min": mf.STEP_MIN,
+            "horizons_min": list(mf.HORIZONS_MIN),
+            "target_tolerance_min": mf.TOLERANCE_MIN,
+            "n_lags": mf.N_LAGS,
+            "resampling": info["resampling"],
         },
         "thresholds": {"low_min_ratio": mf.LOW_MIN_RATIO, "medium_min_ratio": mf.MEDIUM_MIN_RATIO},
         "splits": split_rows,

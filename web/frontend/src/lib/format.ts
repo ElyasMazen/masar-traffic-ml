@@ -21,6 +21,12 @@ export function formatDateTime(iso: string) {
   });
 }
 
+/** e.g. "12:30" */
+export function formatClock(iso: string) {
+  const d = toDate(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /** e.g. "Sun 11 Oct, 17:00" for a selected date + hour */
 export function formatDateHour(iso: string) {
   const d = toDate(iso);

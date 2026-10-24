@@ -27,10 +27,35 @@ LOW_MIN_RATIO = 0.85      # speed_ratio >= 0.85 -> Low
 MEDIUM_MIN_RATIO = 0.60   # 0.60-0.85 -> Medium ; < 0.60 -> High
 WEEKEND_DAYS = (4, 5)     # Friday, Saturday (pandas dayofweek)
 
-STEP_MIN = 10             # collection interval
-TOLERANCE_MIN = 5         # a reading counts as "t + h" if within +/- 5 min
-N_LAGS = 6
-HORIZONS_MIN = (10, 30, 60)
+# Time step of the modelling grid. Data up to 18 Oct 2026 was collected every
+# 10 min; after the restart the collector runs every 30 min. Readings are
+# resampled to this step (see resample), so both can be mixed. Change it with
+# set_step() (train_masar.py --step); everything below follows it.
+DEFAULT_STEP_MIN = 30
+ALL_HORIZONS_MIN = (10, 30, 60)
+N_LAGS = 6                # lag k = k steps back
+
+
+def horizons_for(step_min: int) -> tuple[int, ...]:
+    """Horizons that are whole multiples of the step: step 10 -> 10/30/60, step 30 -> 30/60."""
+    return tuple(h for h in ALL_HORIZONS_MIN if h >= step_min and h % step_min == 0)
+
+
+def set_step(step_min: int) -> None:
+    """Set the grid step for this process: lags, gap limit, target tolerance and horizons."""
+    global STEP_MIN, TOLERANCE_MIN, HORIZONS_MIN
+    step_min = int(step_min)
+    if step_min <= 0 or 60 % step_min or not horizons_for(step_min):
+        raise ValueError(f"step must divide 60 and leave at least one horizon in {ALL_HORIZONS_MIN}: {step_min}")
+    STEP_MIN = step_min
+    TOLERANCE_MIN = step_min / 2   # a reading counts as "t + h" if within +/- half a step
+    HORIZONS_MIN = horizons_for(step_min)
+
+
+STEP_MIN: int
+TOLERANCE_MIN: float
+HORIZONS_MIN: tuple[int, ...]
+set_step(DEFAULT_STEP_MIN)
 
 
 # --------------------------------------------------------------------- labels
@@ -92,18 +117,22 @@ def load_data(csv: str | Path | None = None, snapshot_dir: str | Path | None = N
         "rows": int(len(d)),
         "rows_raw": int(len(frame)),
         "rows_dropped": d.attrs["rows_dropped"],
+        "resampling": d.attrs["resampling"],
+        "step_min": STEP_MIN,
         "points": int(d["point_id"].nunique()),
         "first_reading": str(d["ts"].min()),
-        "last_reading": str(d["ts"].max()),
+        "last_reading": str(d["ts"].max()),          # grid time of the newest reading
+        "last_reading_time": str(d["reading_ts"].max()),  # its actual collection time
         "days": int(d["ts"].dt.normalize().nunique()),
     }
     return d, info
 
 
 def prepare(frame: pd.DataFrame) -> pd.DataFrame:
-    """Parse, drop invalid rows and duplicates, add calendar columns and labels.
+    """Parse, drop invalid rows and duplicates, resample to STEP_MIN, add calendar columns and labels.
 
-    The number of rows dropped by each rule is kept in d.attrs["rows_dropped"].
+    The number of rows dropped by each rule is kept in d.attrs["rows_dropped"],
+    the resampling counts in d.attrs["resampling"].
     """
     d = frame.copy()
     d["ts"] = pd.to_datetime(d["timestamp_local"])
@@ -127,12 +156,48 @@ def prepare(frame: pd.DataFrame) -> pd.DataFrame:
     d = d.drop_duplicates(["point_id", "ts"]).sort_values(["point_id", "ts"]).reset_index(drop=True)
     dropped["duplicate_point_timestamp"] = before - len(d)
     dropped["total"] = sum(dropped.values())
+    d, resampling = resample(d, STEP_MIN)
     d["hour"] = d["ts"].dt.hour
     d["dow"] = d["ts"].dt.dayofweek
     d["daytype"] = day_type(d["dow"])
     d["congestion_level"] = classify_many(d["speed_ratio"])
     d.attrs["rows_dropped"] = dropped
+    d.attrs["resampling"] = resampling
     return d
+
+
+def resample(d: pd.DataFrame, step_min: int) -> tuple[pd.DataFrame, dict]:
+    """Put every point's readings on a regular step_min grid.
+
+    Each reading is assigned to the nearest grid time (ts rounded to the step);
+    when several readings share a grid time, the one closest to it is kept.
+    The original time is kept in reading_ts.
+
+    Nearest reading rather than a per-bin mean: after the restart the collector
+    delivers one instantaneous reading per 30-min slot. Averaging three 10-min
+    readings would make the older data smoother than the new data, so the two
+    would not be comparable when mixed.
+    """
+    d = d.copy()
+    d["reading_ts"] = d["ts"]
+    d["ts"] = d["reading_ts"].dt.round(f"{step_min}min")
+    offset = (d["reading_ts"] - d["ts"]).abs()
+    before = len(d)
+    d = (
+        d.assign(_offset=offset)
+        .sort_values(["point_id", "ts", "_offset"])
+        .drop_duplicates(["point_id", "ts"])
+        .drop(columns="_offset")
+        .sort_values(["point_id", "ts"])
+        .reset_index(drop=True)
+    )
+    return d, {
+        "step_min": int(step_min),
+        "rule": "nearest reading to each grid time, per point",
+        "rows_before": int(before),
+        "rows_after": int(len(d)),
+        "rows_merged": int(before - len(d)),
+    }
 
 
 # ---------------------------------------------------- historical average
@@ -247,7 +312,7 @@ def lag_features(d: pd.DataFrame) -> pd.DataFrame:
     """
     d = d.sort_values(["point_id", "ts"]).reset_index(drop=True)
     g = d.groupby("point_id", group_keys=False)
-    out = d[["point_id", "road", "ts", "free_flow_speed_kmh", "speed_ratio", "congestion_level"]].copy()
+    out = d[["point_id", "road", "ts", "reading_ts", "free_flow_speed_kmh", "speed_ratio", "congestion_level"]].copy()
 
     for c in LAG_COLUMNS:
         out[f"{c}_t"] = d[c].astype(float)
@@ -289,7 +354,7 @@ def add_target_calendar(samples: pd.DataFrame, horizon_min: int) -> pd.DataFrame
 def horizon_samples(d: pd.DataFrame, horizon_min: int) -> pd.DataFrame:
     """One row per reading t with the observed level at t + horizon.
 
-    The target is matched by TIME (nearest reading within +/- 5 min of
+    The target is matched by TIME (nearest reading within +/- TOLERANCE_MIN of
     t + horizon for the same point), not by row count, so collection gaps can
     never pair t with a reading from much later.
     """

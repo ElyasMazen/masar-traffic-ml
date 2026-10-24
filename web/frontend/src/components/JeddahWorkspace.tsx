@@ -5,6 +5,7 @@ import CitySelect, { type City } from "./CitySelect";
 import ForecastChart from "./ForecastChart";
 import JeddahMap from "./JeddahMap";
 import {
+  formatClock,
   formatDateHour,
   formatDateRange,
   formatDateTime,
@@ -76,7 +77,7 @@ function NextHourCard({ forecast, horizon }: { forecast: ShortTermPoint | null; 
         <>
           <strong className={`level-text-${forecast.predicted_level.toLowerCase()}`}>{forecast.predicted_level}</strong>
           <small>
-            for {formatDateTime(forecast.forecast_for)} · from the {formatDateTime(forecast.latest_timestamp)} reading ·
+            for {formatDateTime(forecast.forecast_for)} · from the {formatDateTime(forecast.latest_reading_time ?? forecast.latest_timestamp)} reading ·
             model probability {pct(forecast.model_probability)} · persistence says {forecast.persistence_level}
           </small>
         </>
@@ -194,7 +195,7 @@ export default function JeddahWorkspace({
     const find = (split: string, h: number, subset: Subset, method: string) =>
       results.find((r) => r.split === split && r.horizon_min === h && r.subset === subset && r.method === method);
     return summary.splits.flatMap((sp) =>
-      [10, 30, 60].flatMap((h) =>
+      (summary.data.horizons_min ?? [10, 30, 60]).flatMap((h) =>
         SUBSETS.filter((subset) => find(sp.split, h, subset, "random_forest")).map((subset) => ({
           split: sp.split,
           horizon: h,
@@ -222,6 +223,18 @@ export default function JeddahWorkspace({
         2 * 60 * 60 * 1000
       : false;
   const selectedNext = shortTerm?.points.find((p) => p.point_id === selectedId) ?? null;
+
+  // Readings are resampled to the training step (e.g. 30 min); say so wherever counts appear.
+  const stepMin = data?.step_min ?? shortTerm?.step_min;
+  const readingsText = data
+    ? stepMin && data.rows_raw && data.rows_raw !== data.rows
+      ? `${data.rows.toLocaleString("en-GB")} readings on a ${stepMin}-minute grid, from ${data.rows_raw.toLocaleString("en-GB")} collected`
+      : `${data.rows.toLocaleString("en-GB")} TomTom readings${stepMin ? `, ${stepMin}-minute step` : ""}`
+    : "";
+  const latestReading = shortTerm?.points
+    .map((p) => p.latest_reading_time ?? p.latest_timestamp)
+    .sort()
+    .at(-1);
 
   // The selected hour had fully passed when the user pressed Predict: what is shown is still a prediction.
   const selectedIsPast = simulation
@@ -357,7 +370,7 @@ export default function JeddahWorkspace({
 
           <div className="control-footnote">
             {data
-              ? `${trainedOn} (${data.rows.toLocaleString("en-GB")} TomTom readings). Last reading used: ${formatDateTime(data.trained_through)}. Pilot data — not live traffic.`
+              ? `${trainedOn} (${readingsText}). Last reading used: ${formatDateTime(data.trained_through)}. Pilot data — not live traffic.`
               : "Pilot data — not live traffic."}
           </div>
         </aside>
@@ -481,7 +494,9 @@ export default function JeddahWorkspace({
               <div className="section-kicker">SHORT-TERM FORECAST</div>
               <h2>{horizonTitle(shortTerm.horizon_min)} (from latest reading)</h2>
               <p className="results-sub">
-                Latest reading: {formatDateTime(shortTerm.latest_timestamp)}. Forecast for{" "}
+                Latest reading: {formatDateTime(latestReading ?? shortTerm.latest_timestamp)}
+                {stepMin ? ` (${formatClock(shortTerm.latest_timestamp)} slot on the ${stepMin}-minute grid)` : ""}. Forecast
+                for{" "}
                 {formatDateTime(shortTerm.points[0]?.forecast_for ?? shortTerm.latest_timestamp)} (+{horizon} min), by the
                 Random Forest. This does not depend on the date and hour chosen above.
               </p>
@@ -535,7 +550,7 @@ export default function JeddahWorkspace({
               <div className="section-kicker">HOW THE PREDICTION WORKS</div>
               <h2>{trainedOn}</h2>
               <p className="results-sub">
-                {data?.rows.toLocaleString("en-GB")} TomTom readings · {dayCount}. Chronological tests only: trained on
+                {readingsText} · {dayCount}. Chronological tests only: trained on
                 earlier days, tested on later ones.
               </p>
             </div>
