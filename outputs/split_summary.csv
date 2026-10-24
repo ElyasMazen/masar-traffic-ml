@@ -1,3 +1,2 @@
-split,label,train_start,train_end,test_start,test_end,train_readings,test_readings,test_daytypes,test_weekend_days,test_weekdays
-holdout,Last 4 days (Sat 10 Oct - Tue 13 Oct),2026-10-05 20:29:44,2026-10-09 23:50:33,2026-10-10 00:00:51,2026-10-13 17:20:29,5780,5370,weekday+weekend,['Sat 10 Oct'],"['Sun 11 Oct', 'Mon 12 Oct', 'Tue 13 Oct']"
-latest,Latest 20% of time,2026-10-05 20:29:44,2026-10-12 04:10:28,2026-10-12 04:20:26,2026-10-13 17:20:29,8920,2230,weekday,[],"['Mon 12 Oct', 'Tue 13 Oct']"
+split,label,train_start,train_end,test_start,test_end,train_readings,test_readings,test_daytypes,test_weekend_days,test_weekdays,split_rule
+holdout,Last 3 days (Fri 16 Oct - Sun 18 Oct),2026-10-05 20:30:00,2026-10-15 23:30:00,2026-10-16 00:00:00,2026-10-18 12:30:00,4840,1216,weekday+weekend,"['Fri 16 Oct', 'Sat 17 Oct']",['Sun 18 Oct'],"{'rule': 'test starts at midnight of the most recent Friday whose full Fri+Sat weekend is in the test, with at least one full Fri+Sat weekend in training', 'fallback': False, 'note': '', 'latest_split': 'skipped: the latest 20% of time would start at Fri 16 Oct 00:00, within a day of the main test, so it would repeat the same test'}"

@@ -1,31 +1,21 @@
-horizon_min,road,point_id,latest_reading,forecast_for,latest_level,predicted_level,prob_High,prob_Low,prob_Medium
-10,Al Haramain Road,Al_Haramain_Road_1,2026-10-13 17:20:29,2026-10-13 17:30:29,Medium,Medium,0.0016,0.066,0.9324
-10,Al Haramain Road,Al_Haramain_Road_2,2026-10-13 17:20:29,2026-10-13 17:30:29,Medium,Medium,0.2997,0.0,0.7003
-10,Al Haramain Road,Al_Haramain_Road_3,2026-10-13 17:20:29,2026-10-13 17:30:29,High,High,0.9997,0.0,0.0003
-10,Al Madinah Road,Al_Madinah_Road_1,2026-10-13 17:20:29,2026-10-13 17:30:29,Low,Low,0.0034,0.9019,0.0947
-10,Al Madinah Road,Al_Madinah_Road_2,2026-10-13 17:20:29,2026-10-13 17:30:29,Low,Low,0.0152,0.9236,0.0612
-10,Al Madinah Road,Al_Madinah_Road_3,2026-10-13 17:20:29,2026-10-13 17:30:29,High,High,0.6998,0.0,0.3002
-10,Al Madinah Road,Al_Madinah_Road_4,2026-10-13 17:20:29,2026-10-13 17:30:29,Medium,High,0.7533,0.0,0.2467
-10,King Abdulaziz Road,King_Abdulaziz_Road_1,2026-10-13 17:20:29,2026-10-13 17:30:29,High,High,0.9895,0.0,0.0105
-10,King Abdulaziz Road,King_Abdulaziz_Road_2,2026-10-13 17:20:29,2026-10-13 17:30:29,Medium,Medium,0.0012,0.0947,0.9041
-10,King Abdulaziz Road,King_Abdulaziz_Road_3,2026-10-13 17:20:29,2026-10-13 17:30:29,Medium,Medium,0.0071,0.0265,0.9663
-30,Al Haramain Road,Al_Haramain_Road_1,2026-10-13 17:20:29,2026-10-13 17:50:29,Medium,Medium,0.0035,0.1124,0.8841
-30,Al Haramain Road,Al_Haramain_Road_2,2026-10-13 17:20:29,2026-10-13 17:50:29,Medium,Medium,0.2816,0.0052,0.7132
-30,Al Haramain Road,Al_Haramain_Road_3,2026-10-13 17:20:29,2026-10-13 17:50:29,High,High,0.994,0.0,0.006
-30,Al Madinah Road,Al_Madinah_Road_1,2026-10-13 17:20:29,2026-10-13 17:50:29,Low,Low,0.0088,0.8648,0.1264
-30,Al Madinah Road,Al_Madinah_Road_2,2026-10-13 17:20:29,2026-10-13 17:50:29,Low,Low,0.0167,0.9418,0.0414
-30,Al Madinah Road,Al_Madinah_Road_3,2026-10-13 17:20:29,2026-10-13 17:50:29,High,High,0.7229,0.0069,0.2702
-30,Al Madinah Road,Al_Madinah_Road_4,2026-10-13 17:20:29,2026-10-13 17:50:29,Medium,High,0.7565,0.0,0.2435
-30,King Abdulaziz Road,King_Abdulaziz_Road_1,2026-10-13 17:20:29,2026-10-13 17:50:29,High,High,0.9528,0.0021,0.0451
-30,King Abdulaziz Road,King_Abdulaziz_Road_2,2026-10-13 17:20:29,2026-10-13 17:50:29,Medium,Medium,0.0012,0.0624,0.9364
-30,King Abdulaziz Road,King_Abdulaziz_Road_3,2026-10-13 17:20:29,2026-10-13 17:50:29,Medium,Medium,0.0199,0.0693,0.9108
-60,Al Haramain Road,Al_Haramain_Road_1,2026-10-13 17:20:29,2026-10-13 18:20:29,Medium,Medium,0.0107,0.2459,0.7434
-60,Al Haramain Road,Al_Haramain_Road_2,2026-10-13 17:20:29,2026-10-13 18:20:29,Medium,Medium,0.1899,0.0367,0.7734
-60,Al Haramain Road,Al_Haramain_Road_3,2026-10-13 17:20:29,2026-10-13 18:20:29,High,High,0.9644,0.0004,0.0352
-60,Al Madinah Road,Al_Madinah_Road_1,2026-10-13 17:20:29,2026-10-13 18:20:29,Low,Low,0.0291,0.8078,0.1632
-60,Al Madinah Road,Al_Madinah_Road_2,2026-10-13 17:20:29,2026-10-13 18:20:29,Low,Low,0.016,0.9477,0.0364
-60,Al Madinah Road,Al_Madinah_Road_3,2026-10-13 17:20:29,2026-10-13 18:20:29,High,High,0.4927,0.0193,0.488
-60,Al Madinah Road,Al_Madinah_Road_4,2026-10-13 17:20:29,2026-10-13 18:20:29,Medium,High,0.7715,0.0022,0.2263
-60,King Abdulaziz Road,King_Abdulaziz_Road_1,2026-10-13 17:20:29,2026-10-13 18:20:29,High,High,0.8485,0.0056,0.1459
-60,King Abdulaziz Road,King_Abdulaziz_Road_2,2026-10-13 17:20:29,2026-10-13 18:20:29,Medium,Medium,0.0016,0.1037,0.8946
-60,King Abdulaziz Road,King_Abdulaziz_Road_3,2026-10-13 17:20:29,2026-10-13 18:20:29,Medium,Medium,0.0168,0.0523,0.9309
+horizon_min,road,point_id,latest_slot,latest_reading,forecast_for,latest_level,predicted_level,prob_High,prob_Low,prob_Medium
+30,Al Haramain Road,Al_Haramain_Road_1,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:00:00,Medium,Medium,0.005,0.4467,0.5483
+30,Al Haramain Road,Al_Haramain_Road_2,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:00:00,High,High,0.9572,0.0,0.0428
+30,Al Haramain Road,Al_Haramain_Road_3,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:00:00,Medium,Medium,0.0784,0.0319,0.8897
+30,Al Madinah Road,Al_Madinah_Road_1,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:00:00,Low,Low,0.0,0.9871,0.0129
+30,Al Madinah Road,Al_Madinah_Road_2,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 12:30:00,Low,Low,0.0126,0.9457,0.0417
+30,Al Madinah Road,Al_Madinah_Road_3,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:00:00,Medium,Medium,0.1999,0.0449,0.7552
+30,Al Madinah Road,Al_Madinah_Road_4,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:00:00,Medium,Medium,0.0264,0.0383,0.9352
+30,King Abdulaziz Road,King_Abdulaziz_Road_1,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 12:30:00,Low,Low,0.0224,0.9366,0.041
+30,King Abdulaziz Road,King_Abdulaziz_Road_2,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 12:30:00,Low,Low,0.0022,0.9444,0.0534
+30,King Abdulaziz Road,King_Abdulaziz_Road_3,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 12:30:00,Low,Low,0.0066,0.9487,0.0446
+60,Al Haramain Road,Al_Haramain_Road_1,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:30:00,Medium,Low,0.0117,0.6521,0.3362
+60,Al Haramain Road,Al_Haramain_Road_2,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:30:00,High,High,0.9368,0.0008,0.0624
+60,Al Haramain Road,Al_Haramain_Road_3,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:30:00,Medium,Medium,0.1859,0.0394,0.7747
+60,Al Madinah Road,Al_Madinah_Road_1,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:30:00,Low,Low,0.0,0.9766,0.0234
+60,Al Madinah Road,Al_Madinah_Road_2,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 13:00:00,Low,Low,0.0389,0.8965,0.0647
+60,Al Madinah Road,Al_Madinah_Road_3,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:30:00,Medium,High,0.8502,0.0329,0.1169
+60,Al Madinah Road,Al_Madinah_Road_4,2026-10-18 12:30:00,2026-10-18 12:20:28,2026-10-18 13:30:00,Medium,Medium,0.2581,0.0614,0.6805
+60,King Abdulaziz Road,King_Abdulaziz_Road_1,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 13:00:00,Low,Low,0.2536,0.4383,0.3081
+60,King Abdulaziz Road,King_Abdulaziz_Road_2,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 13:00:00,Low,Medium,0.0167,0.4846,0.4987
+60,King Abdulaziz Road,King_Abdulaziz_Road_3,2026-10-18 12:00:00,2026-10-18 12:00:42,2026-10-18 13:00:00,Low,Low,0.0092,0.9264,0.0644
