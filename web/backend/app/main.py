@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .schemas import JeddahSimulationRequest, PoliceSimulationRequest, ScenarioRequest, SimulationRequest
 from .services.data_service import get_data_service
 from .services.jeddah_service import JeddahService, get_jeddah_service
+from .services.safety_service import SafetyService, get_safety_service
 from .services.simulator import police_snapshot, simulate, simulate_scenario
 
 
@@ -172,6 +173,31 @@ def jeddah_simulation(payload: JeddahSimulationRequest):
         return _jeddah().simulate(payload.point_id, payload.date, payload.hour)
     except KeyError:
         raise HTTPException(status_code=404, detail="Point not found")
+
+
+def _safety() -> SafetyService:
+    try:
+        return get_safety_service()
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=503,
+            detail="Safety risk outputs not found. Run: python safety_risk.py (repo root)",
+        )
+
+
+@app.get("/api/jeddah/safety/summary")
+def jeddah_safety_summary():
+    return _safety().summary()
+
+
+@app.get("/api/jeddah/safety/levels")
+def jeddah_safety_levels(date: Date, hour: int = Query(ge=0, le=23)):
+    return _safety().levels(date, hour)
+
+
+@app.get("/api/jeddah/safety/latest")
+def jeddah_safety_latest():
+    return _safety().latest()
 
 
 @app.post("/api/police/snapshot")
