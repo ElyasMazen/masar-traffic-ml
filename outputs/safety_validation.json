@@ -30,8 +30,8 @@
     ],
     "full_scale": 0.7,
     "band_cutoffs_medium_high": [
-      30.0,
-      60.0
+      21.0,
+      43.0
     ],
     "min_components": 3,
     "incident_radius_km": 1.0
@@ -41,9 +41,10 @@
     "abs_spearman_at_most_0.65": true,
     "high_at_full_free_flow": 0,
     "high_right_after_gap": 0,
-    "high_within_one_hour_after_gap": 1,
-    "min_high_overlap": 0.3864,
-    "min_high_overlap_at_least_0.80": false,
+    "high_within_one_hour_after_gap": 2,
+    "min_high_overlap_weights": 0.622,
+    "window_120_high_overlap_not_gated": 0.5407,
+    "min_high_overlap_weights_at_least_0.80": false,
     "night_free_flow_mean_index": 1.28,
     "passed": false
   },
@@ -54,17 +55,17 @@
     },
     "share_high_in_congestion": {
       "raw_index (top 10%)": 0.8814,
-      "risk_index (High band)": 0.8409,
+      "risk_index (High band)": 0.4431,
       "risk_index (top 10%)": 0.6793
     },
     "share_high_overall": {
       "raw_index (top 10%)": 0.0996,
-      "risk_index (High band)": 0.0024
+      "risk_index (High band)": 0.0136
     },
     "sensitivity_min_overlap": {
       "raw_index (top 10%, weights)": 0.9104,
-      "risk_index (High band, weights + window)": 0.3864,
-      "risk_index (top 10%, weights + window)": 0.7327
+      "risk_index (High band, weights + window)": 0.622,
+      "risk_index (top 10%, weights + window)": 0.887
     },
     "high_share_per_point_percent": {
       "raw_index (top 10%)": {
@@ -80,16 +81,16 @@
         "King_Abdulaziz_Road_3": 10.4
       },
       "risk_index (High band)": {
-        "Al_Haramain_Road_1": 0.2,
-        "Al_Haramain_Road_2": 0.2,
-        "Al_Haramain_Road_3": 0.2,
-        "Al_Madinah_Road_1": 0.0,
-        "Al_Madinah_Road_2": 0.2,
-        "Al_Madinah_Road_3": 0.1,
-        "Al_Madinah_Road_4": 0.2,
-        "King_Abdulaziz_Road_1": 0.4,
-        "King_Abdulaziz_Road_2": 0.3,
-        "King_Abdulaziz_Road_3": 0.6
+        "Al_Haramain_Road_1": 0.3,
+        "Al_Haramain_Road_2": 0.8,
+        "Al_Haramain_Road_3": 1.1,
+        "Al_Madinah_Road_1": 0.3,
+        "Al_Madinah_Road_2": 0.3,
+        "Al_Madinah_Road_3": 0.7,
+        "Al_Madinah_Road_4": 1.2,
+        "King_Abdulaziz_Road_1": 1.0,
+        "King_Abdulaziz_Road_2": 3.5,
+        "King_Abdulaziz_Road_3": 4.5
       }
     },
     "top10_moments_per_point": {
@@ -111,41 +112,41 @@
     {
       "variant": "9 speed bands",
       "spearman_vs_speed_ratio": -0.1766,
-      "share_high": 0.002,
-      "high_at_full_free_flow": 0.1111,
-      "high_in_congestion": 0.8889,
-      "night_free_flow_share_high": 0.0006,
-      "worst_high_overlap_weights": 0.3889,
+      "share_high": 0.025,
+      "high_at_full_free_flow": 0.7461,
+      "high_in_congestion": 0.2539,
+      "night_free_flow_share_high": 0.0082,
+      "worst_high_overlap_weights": 0.3541,
       "worst_top10_overlap_weights": 0.745
     },
     {
       "variant": "3 congestion levels",
       "spearman_vs_speed_ratio": -0.2265,
-      "share_high": 0.0025,
-      "high_at_full_free_flow": 0.0,
-      "high_in_congestion": 0.8409,
-      "night_free_flow_share_high": 0.0009,
-      "worst_high_overlap_weights": 0.5227,
+      "share_high": 0.0301,
+      "high_at_full_free_flow": 0.5444,
+      "high_in_congestion": 0.2019,
+      "night_free_flow_share_high": 0.0207,
+      "worst_high_overlap_weights": 0.3593,
       "worst_top10_overlap_weights": 0.8096
     },
     {
       "variant": "9 speed bands + recovery rule",
       "spearman_vs_speed_ratio": -0.6013,
-      "share_high": 0.0018,
+      "share_high": 0.0063,
       "high_at_full_free_flow": 0.0,
       "high_in_congestion": 1.0,
       "night_free_flow_share_high": 0.0,
-      "worst_high_overlap_weights": 0.3125,
+      "worst_high_overlap_weights": 0.6842,
       "worst_top10_overlap_weights": 0.8413
     },
     {
       "variant": "3 congestion levels + recovery rule (chosen)",
       "spearman_vs_speed_ratio": -0.601,
-      "share_high": 0.0025,
+      "share_high": 0.0137,
       "high_at_full_free_flow": 0.0,
-      "high_in_congestion": 0.8409,
-      "night_free_flow_share_high": 0.0009,
-      "worst_high_overlap_weights": 0.5227,
+      "high_in_congestion": 0.4431,
+      "night_free_flow_share_high": 0.0139,
+      "worst_high_overlap_weights": 0.622,
       "worst_top10_overlap_weights": 0.887
     }
   ],
@@ -271,10 +272,10 @@
   "share_index_zero": 0.8334,
   "bands": {
     "fixed": {
-      "Low": 17259,
-      "Medium": 653,
-      "": 80,
-      "High": 44
+      "Low": 16746,
+      "Medium": 964,
+      "High": 246,
+      "": 80
     },
     "relative_comparison": {
       "Medium": 16160,
@@ -291,8 +292,10 @@
     "": 80
   },
   "main_reason_high": {
-    "sudden drop": 37,
-    "high variability": 7
+    "high variability": 150,
+    "sudden drop": 84,
+    "speed difference to neighbouring point": 8,
+    "unusually slow for this hour": 4
   },
   "a_behaviour": {
     "mean_index_by_hour": {
@@ -351,39 +354,39 @@
     },
     "share_high_by_hour": {
       "weekday": {
-        "0": 0.002,
-        "1": 0.002,
-        "2": 0.002,
-        "3": 0.002,
-        "4": 0.002,
+        "0": 0.03,
+        "1": 0.019,
+        "2": 0.028,
+        "3": 0.009,
+        "4": 0.017,
         "5": 0.0,
-        "6": 0.009,
-        "7": 0.004,
-        "8": 0.004,
+        "6": 0.022,
+        "7": 0.031,
+        "8": 0.028,
         "9": 0.004,
-        "10": 0.0,
-        "11": 0.002,
-        "12": 0.0,
-        "13": 0.006,
-        "14": 0.006,
-        "15": 0.004,
-        "16": 0.002,
+        "10": 0.017,
+        "11": 0.013,
+        "12": 0.01,
+        "13": 0.019,
+        "14": 0.017,
+        "15": 0.017,
+        "16": 0.023,
         "17": 0.0,
-        "18": 0.004,
-        "19": 0.002,
-        "20": 0.002,
-        "21": 0.006,
-        "22": 0.0,
-        "23": 0.006
+        "18": 0.013,
+        "19": 0.012,
+        "20": 0.025,
+        "21": 0.021,
+        "22": 0.002,
+        "23": 0.016
       },
       "weekend": {
-        "0": 0.0,
-        "1": 0.0,
+        "0": 0.004,
+        "1": 0.004,
         "2": 0.0,
         "3": 0.0,
-        "4": 0.0,
-        "5": 0.0,
-        "6": 0.004,
+        "4": 0.017,
+        "5": 0.029,
+        "6": 0.008,
         "7": 0.0,
         "8": 0.0,
         "9": 0.0,
@@ -393,14 +396,14 @@
         "13": 0.0,
         "14": 0.0,
         "15": 0.0,
-        "16": 0.004,
-        "17": 0.008,
-        "18": 0.0,
-        "19": 0.0,
-        "20": 0.012,
-        "21": 0.0,
+        "16": 0.012,
+        "17": 0.025,
+        "18": 0.029,
+        "19": 0.021,
+        "20": 0.017,
+        "21": 0.012,
         "22": 0.004,
-        "23": 0.0
+        "23": 0.004
       }
     },
     "weekday_mean_index_by_point_and_hour": {
@@ -669,37 +672,37 @@
       "daytime free flow": {
         "n": 9177,
         "mean_index": 1.219,
-        "share_high": 0.0
+        "share_high": 0.009
       },
       "end (+/- 1 reading)": {
         "n": 653,
         "mean_index": 7.205,
-        "share_high": 0.003
+        "share_high": 0.017
       },
       "inside episode": {
         "n": 2938,
         "mean_index": 5.234,
-        "share_high": 0.0
+        "share_high": 0.006
       },
       "night free flow (00-05h)": {
         "n": 3492,
         "mean_index": 1.28,
-        "share_high": 0.001
+        "share_high": 0.012
       },
       "onset (+/- 1 reading)": {
         "n": 693,
         "mean_index": 16.756,
-        "share_high": 0.035
+        "share_high": 0.091
       },
       "peak (within 0.05 of episode minimum)": {
         "n": 835,
         "mean_index": 9.217,
-        "share_high": 0.005
+        "share_high": 0.011
       },
       "short dip (< 30 min)": {
         "n": 248,
         "mean_index": 17.111,
-        "share_high": 0.032
+        "share_high": 0.093
       }
     },
     "by_phase_and_point": {
@@ -806,36 +809,36 @@
     "band_vs_congestion": {
       "counts": {
         "Low": {
-          "Low": 12690,
-          "Medium": 3320,
-          "High": 1249
+          "Low": 12551,
+          "Medium": 3053,
+          "High": 1142
         },
         "Medium": {
-          "Low": 332,
-          "Medium": 229,
-          "High": 92
+          "Low": 341,
+          "Medium": 436,
+          "High": 187
         },
         "High": {
-          "Low": 7,
-          "Medium": 28,
-          "High": 9
+          "Low": 137,
+          "Medium": 88,
+          "High": 21
         }
       },
       "row_percent": {
         "Low": {
-          "Low": 73.5,
-          "Medium": 19.2,
-          "High": 7.2
+          "Low": 74.9,
+          "Medium": 18.2,
+          "High": 6.8
         },
         "Medium": {
-          "Low": 50.8,
-          "Medium": 35.1,
-          "High": 14.1
+          "Low": 35.4,
+          "Medium": 45.2,
+          "High": 19.4
         },
         "High": {
-          "Low": 15.9,
-          "Medium": 63.6,
-          "High": 20.5
+          "Low": 55.7,
+          "Medium": 35.8,
+          "High": 8.5
         }
       }
     },
@@ -854,87 +857,88 @@
       "unusual": -0.5869
     },
     "high_by_congestion_level_percent": {
-      "Medium": 63.6,
-      "High": 20.5,
-      "Low": 15.9
+      "Low": 55.7,
+      "Medium": 35.8,
+      "High": 8.5
     },
     "high_by_speed_level_percent": {
-      "[0.0, 0.6)": 20.5,
-      "[0.6, 0.85)": 63.6,
-      "[0.85, 1.01)": 15.9
+      "[0.0, 0.6)": 8.5,
+      "[0.6, 0.85)": 35.8,
+      "[0.85, 1.01)": 55.7
     }
   },
   "c_sensitivity": {
-    "baseline": "High band (index >= 60.0), window 60 min, weights {'variability': 1.0, 'sudden_drop': 1.0, 'neighbour': 0.5, 'unusual': 0.5}",
+    "baseline": "High band (index >= 43.0), window 60 min, weights {'variability': 1.0, 'sudden_drop': 1.0, 'neighbour': 0.5, 'unusual': 0.5}",
     "overlap_definition": "share of the baseline set that is still in the variant's set",
     "variants": [
       {
         "variant": "variability weight x0.5",
-        "high_overlap": 0.8409,
+        "high_overlap": 0.622,
         "top10_overlap": 0.887,
-        "high_count": 45
+        "high_count": 167
       },
       {
         "variant": "variability weight x1.5",
-        "high_overlap": 0.8864,
+        "high_overlap": 0.9675,
         "top10_overlap": 0.9393,
-        "high_count": 76
+        "high_count": 349
       },
       {
         "variant": "sudden_drop weight x0.5",
-        "high_overlap": 0.5227,
+        "high_overlap": 0.8699,
         "top10_overlap": 0.9783,
-        "high_count": 84
+        "high_count": 412
       },
       {
         "variant": "sudden_drop weight x1.5",
-        "high_overlap": 0.8409,
+        "high_overlap": 0.6341,
         "top10_overlap": 0.9861,
-        "high_count": 55
+        "high_count": 178
       },
       {
         "variant": "neighbour weight x0.5",
-        "high_overlap": 0.9545,
+        "high_overlap": 0.9065,
         "top10_overlap": 0.9399,
-        "high_count": 60
+        "high_count": 259
       },
       {
         "variant": "neighbour weight x1.5",
-        "high_overlap": 0.75,
+        "high_overlap": 0.8902,
         "top10_overlap": 0.9521,
-        "high_count": 37
+        "high_count": 237
       },
       {
         "variant": "unusual weight x0.5",
-        "high_overlap": 0.8636,
+        "high_overlap": 0.8374,
         "top10_overlap": 0.9276,
-        "high_count": 45
+        "high_count": 226
       },
       {
         "variant": "unusual weight x1.5",
-        "high_overlap": 0.8182,
+        "high_overlap": 0.9228,
         "top10_overlap": 0.9293,
-        "high_count": 47
+        "high_count": 283
       },
       {
         "variant": "window 120 min (vs 60)",
-        "high_overlap": 0.3864,
+        "high_overlap": 0.5407,
         "top10_overlap": 0.7327,
-        "high_count": 23
+        "high_count": 181
       }
     ],
-    "min_high_overlap": 0.3864,
-    "min_top10_overlap": 0.7327,
+    "min_high_overlap": 0.622,
+    "min_top10_overlap": 0.887,
+    "window_120_high_overlap": 0.5407,
     "raw_index_min_top10_overlap_weights": 0.9104
   },
   "d_isolation_forest": {
     "per_point_scores": {
       "top10_overlap_with_index_top10": 0.5379,
-      "high_band_in_forest_top10": 0.8864
+      "high_band_in_forest_top10": 0.6057
     },
     "per_point_scores_minus_level_mean": {
       "top10_overlap_with_index_top10": 0.397,
-      "high_band_in_forest_top10": 1.0
+      "high_band_in_forest_top10": 0.9512
     },
     "note": "Isolation Forest on the same four components (per-point scores)."
   },
@@ -947,7 +951,7 @@
       "share_with_incident": 0.9431,
       "mean_index_near": 3.1465,
       "mean_index_far": 1.15,
-      "share_high_near": 0.0022,
+      "share_high_near": 0.0138,
       "share_high_far": 0.0,
       "within_congestion_level": {
         "Low": {
@@ -976,8 +980,8 @@
       "share_with_incident": 0.134,
       "mean_index_near": 5.4043,
       "mean_index_far": 2.666,
-      "share_high_near": 0.0031,
-      "share_high_far": 0.0019,
+      "share_high_near": 0.019,
+      "share_high_far": 0.0121,
       "within_congestion_level": {
         "Low": {
           "mean_index_near": 3.124,
@@ -1005,8 +1009,8 @@
       "share_with_incident": 0.47,
       "mean_index_near": 2.2963,
       "mean_index_far": 3.6861,
-      "share_high_near": 0.0026,
-      "share_high_far": 0.0015,
+      "share_high_near": 0.0092,
+      "share_high_far": 0.0164,
       "within_congestion_level": {
         "Low": {
           "mean_index_near": 0.4661,
@@ -1233,8 +1237,8 @@
       "30min": 6056
     },
     "share_high": {
-      "10min": 0.0024,
-      "30min": 0.0124
+      "10min": 0.0136,
+      "30min": 0.0287
     },
     "component_p95": {
       "10min": {
@@ -1254,15 +1258,18 @@
       "10min": 0.5484,
       "30min": 0.8214
     },
-    "share_10min_high_moments_still_high_at_30min": 0.2955,
+    "share_10min_high_moments_still_high_at_30min": 0.3699,
     "main_reason_of_high_percent": {
       "10min": {
-        "sudden drop": 84.1,
-        "high variability": 15.9
+        "high variability": 61.0,
+        "sudden drop": 34.1,
+        "speed difference to neighbouring point": 3.3,
+        "unusually slow for this hour": 1.6
       },
       "30min": {
-        "sudden drop": 89.3,
-        "high variability": 10.7
+        "sudden drop": 54.6,
+        "high variability": 44.8,
+        "unusually slow for this hour": 0.6
       }
     },
     "correlation_index_vs_speed_ratio_spearman": {

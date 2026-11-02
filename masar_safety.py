@@ -86,7 +86,8 @@ class SafetyConfig:
     free_flow_ratio: float = FREE_FLOW_RATIO
     full_scale: float = 0.7            # an excess of 0.7 (score units) = index 100
     min_drop: float = 0.15             # a drop counts only if speed_ratio falls >= 0.15 between readings
-    band_cutoffs: tuple = (30.0, 60.0)     # index >= 30 Medium, >= 60 High (fixed, no quota)
+    min_ratio_std: float = 0.0         # variability counts only if the window's std of speed_ratio >= this
+    band_cutoffs: tuple = (21.0, 43.0)     # index >= 21 Medium, >= 43 High = excess >= 0.15 / 0.30 (fixed, no quota)
     relative_bands: tuple = (0.70, 0.90)   # comparison only: top 10% High, next 20% Medium
     incident_radius_km: float = 1.0
     use_incidents: bool = False        # optional component; never part of the main index by default
@@ -142,14 +143,20 @@ def compute_components(readings: pd.DataFrame, cfg: SafetyConfig, usual: dict | 
     # (and >= 2), otherwise NaN.
     need = max(2, int(np.ceil(0.5 * cfg.window_min / cfg.step_min)))
     gap_limit = pd.Timedelta(minutes=cfg.step_min * 1.5)
-    cv = []
+    cv, ratio_std = [], []
     for _, g in d.groupby("point_id", sort=True):
         run = (g["ts"].diff() > gap_limit).cumsum()
         for _, seg in g.groupby(run, sort=True):
             s = seg.set_index("ts")["current_speed_kmh"].astype(float)
             roll = s.rolling(f"{cfg.window_min}min", min_periods=need)
             cv.append((roll.std(ddof=0) / roll.mean()).to_numpy())
-    out["variability"] = np.concatenate(cv)
+            rr = seg.set_index("ts")["speed_ratio"].astype(float).rolling(f"{cfg.window_min}min", min_periods=need)
+            ratio_std.append(rr.std(ddof=0).to_numpy())
+    out["variability_raw"] = np.concatenate(cv)
+    out["ratio_std"] = np.concatenate(ratio_std)
+    # Small fluctuations do not count: below min_ratio_std the component is 0.
+    out["variability"] = out["variability_raw"].where(
+        out["variability_raw"].isna() | (out["ratio_std"] >= cfg.min_ratio_std), 0.0)
 
     # c) neighbour difference - max |ratio difference| to the adjacent point(s) on
     # the same road at the same grid time. Direction is unknown, so both sides count.

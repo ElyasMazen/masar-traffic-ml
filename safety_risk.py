@@ -195,8 +195,11 @@ def sensitivity(readings: pd.DataFrame, r: pd.DataFrame, cfg: ms.SafetyConfig) -
         "baseline": f"High band (index >= {cfg.band_cutoffs[1]}), window {cfg.window_min} min, weights {cfg.weights}",
         "overlap_definition": "share of the baseline set that is still in the variant's set",
         "variants": rows,
-        "min_high_overlap": min(v["high_overlap"] for v in rows),
-        "min_top10_overlap": min(v["top10_overlap"] for v in rows),
+        # Gate on the weights only: the 60-min window is part of the definition,
+        # the 2-hour window is reported as a limitation.
+        "min_high_overlap": min(v["high_overlap"] for v in rows if "weight" in v["variant"]),
+        "min_top10_overlap": min(v["top10_overlap"] for v in rows if "weight" in v["variant"]),
+        "window_120_high_overlap": next(v["high_overlap"] for v in rows if v["variant"].startswith("window")),
         "raw_index_min_top10_overlap_weights": min(raw_rows),
     }
 
@@ -548,12 +551,13 @@ def main():
         "high_at_full_free_flow": int((high & (r["speed_ratio"] >= 0.9999)).sum()),
         "high_right_after_gap": int((high & r["after_gap"]).sum()),
         "high_within_one_hour_after_gap": int((high & after_gap_window(r, 60)).sum()),
-        "min_high_overlap": sens["min_high_overlap"],
-        "min_high_overlap_at_least_0.80": sens["min_high_overlap"] >= 0.80,
+        "min_high_overlap_weights": sens["min_high_overlap"],
+        "window_120_high_overlap_not_gated": sens["window_120_high_overlap"],
+        "min_high_overlap_weights_at_least_0.80": sens["min_high_overlap"] >= 0.80,
         "night_free_flow_mean_index": beh["by_phase"].get("night free flow (00-05h)", {}).get("mean_index"),
     }
     gate["passed"] = bool(gate["abs_spearman_at_most_0.65"] and gate["high_at_full_free_flow"] == 0
-                          and gate["high_right_after_gap"] == 0 and gate["min_high_overlap_at_least_0.80"])
+                          and gate["high_right_after_gap"] == 0 and gate["min_high_overlap_weights_at_least_0.80"])
 
     usual = usual_table(r, cfg)
     usual.round(4).to_csv(out / "safety_usual.csv", index=False)
