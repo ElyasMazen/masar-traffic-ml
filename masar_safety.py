@@ -25,7 +25,8 @@ The MAIN index is "risk beyond what is usual for this traffic level":
   3. minus the mean of that score for readings at the same traffic level
      (the three congestion levels, LEVEL_BINS); only the excess counts;
   4. index = 100 x excess / full_scale, capped at 100; fixed band cut-offs;
-  5. recovery rule: at ratio >= 0.95 the index is 0 unless the reading is a drop.
+  5. recovery rule: at ratio >= 0.85 (congestion level Low) the index is 0 unless
+     the reading is a (>= min_drop) sudden drop, so High only occurs in slowed traffic.
 The variability window restarts after a collection gap, so a reading right
 after a gap never scores on instability that spans the gap.
 Without step 3 the index mostly restated congestion (Spearman -0.82 with
@@ -63,10 +64,13 @@ REASONS = {
 # expected score near 0, so any leftover instability became "High" there.
 LEVEL_BINS = [0.0, mf.MEDIUM_MIN_RATIO, mf.LOW_MIN_RATIO, 1.01]
 
-# Recovery rule: at (near) free flow the index is 0 unless the reading itself is
-# a sudden drop. Otherwise a road that is already back at full speed scores high
-# only because its last hour still contains the slowdown.
-FREE_FLOW_RATIO = 0.95
+# Recovery rule: from the Low congestion level up (speed_ratio >= 0.85) the index is
+# 0 unless the reading itself is a sudden drop. Otherwise a road that is back at (or
+# near) full speed scores high only because its last hour still contains the
+# slowdown, or because of small oscillations around a free-flow speed it rarely
+# reaches (night readings on King Abdulaziz 2/3). 0.95 was tried first: it left 25%
+# of the High readings at night.
+FREE_FLOW_RATIO = mf.LOW_MIN_RATIO
 
 
 @dataclass

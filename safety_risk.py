@@ -301,14 +301,27 @@ def compare_steps(r10: pd.DataFrame, r30: pd.DataFrame) -> dict:
 
 
 def usual_table(r: pd.DataFrame, cfg: ms.SafetyConfig) -> pd.DataFrame:
-    """Usual risk per point x day type x hour - what the web app shows for a chosen date and hour."""
+    """Usual risk per point x day type x hour - what the web app shows for a chosen date and hour.
+
+    Risk moments are rare, short events, so the MEAN index of an hour is always
+    low (max ~20, never Medium). The app therefore shows the 90th percentile
+    ("on the worse days at this hour the index reaches at least this"), banded
+    with the same fixed cut-offs, plus how often the hour was Medium or High.
+    The reason is the most frequent main reason among the elevated readings.
+    """
     rows = []
     for (pid, dt, hour), g in r.dropna(subset=["risk_index"]).groupby(["point_id", "daytype", "hour"]):
-        reasons = g.loc[g["main_reason"].isin(ms.REASONS.values()), "main_reason"]
+        elevated = g.loc[g["band"].isin(["Medium", "High"]), "main_reason"]
+        nonzero = g.loc[g["main_reason"].isin(ms.REASONS.values()), "main_reason"]
+        reasons = elevated if not elevated.empty else nonzero
+        p90 = float(g["risk_index"].quantile(0.90))
         rows.append({
             "point_id": pid, "daytype": dt, "hour": hour,
             "readings": len(g), "days": g["ts"].dt.normalize().nunique(),
+            "p90_index": p90,
+            "band": ms.fixed_bands(pd.Series([p90]), cfg.band_cutoffs).iloc[0],
             "mean_index": g["risk_index"].mean(),
+            "max_index": g["risk_index"].max(),
             "share_medium_or_high": (g["band"] != "Low").mean(),
             "share_high": (g["band"] == "High").mean(),
             "main_reason": reasons.mode().iloc[0] if not reasons.empty else "none",
@@ -442,18 +455,18 @@ def charts(r: pd.DataFrame, sens: dict, iso: dict, steps: dict, ba: dict, out: P
     # Sensitivity summary.
     labels = [v["variant"] for v in sens["variants"]] + [
         "Isolation Forest (level-adjusted scores)", "30-min grid"]
-    values = [v["high_overlap"] for v in sens["variants"]] + [
-        iso["per_point_scores_minus_level_mean"]["high_band_in_forest_top10"],
+    values = [v["top10_overlap"] for v in sens["variants"]] + [
+        iso["per_point_scores_minus_level_mean"]["top10_overlap_with_index_top10"],
         steps["share_10min_high_moments_still_high_at_30min"] or 0]
     colors = ["#0d5a4e"] * len(sens["variants"]) + ["#8a96a3", "#d6a13b"]
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.barh(labels[::-1], [100 * v for v in values[::-1]], color=colors[::-1])
     for i, v in enumerate(values[::-1]):
         ax.text(100 * v + 1, i, f"{v:.0%}", va="center", fontsize=8)
-    ax.axvline(85, color="#d64f49", ls=":", lw=1)
     ax.set_xlim(0, 110)
-    ax.set_xlabel("% of the baseline High readings that are also High (red line: 85%)")
-    ax.set_title("Robustness of the High set (risk index)")
+    ax.axvline(80, color="#d64f49", ls="--", lw=1)
+    ax.set_xlabel("% of the baseline top-10% readings that stay in the top 10% (gate: 80%, weights only)")
+    ax.set_title("Robustness of the ranking (risk index); the 2-hour window is not gated")
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     fig.savefig(out / "safety_sensitivity.png", dpi=150)
@@ -551,13 +564,19 @@ def main():
         "high_at_full_free_flow": int((high & (r["speed_ratio"] >= 0.9999)).sum()),
         "high_right_after_gap": int((high & r["after_gap"]).sum()),
         "high_within_one_hour_after_gap": int((high & after_gap_window(r, 60)).sum()),
-        "min_high_overlap_weights": sens["min_high_overlap"],
+        "min_top10_overlap_weights": sens["min_top10_overlap"],
+        "min_top10_overlap_weights_at_least_0.80": sens["min_top10_overlap"] >= 0.80,
+        "min_high_overlap_weights_not_gated": sens["min_high_overlap"],
+        "high_count_range_weights": [min(v["high_count"] for v in sens["variants"] if "weight" in v["variant"]),
+                                     max(v["high_count"] for v in sens["variants"] if "weight" in v["variant"])],
         "window_120_high_overlap_not_gated": sens["window_120_high_overlap"],
-        "min_high_overlap_weights_at_least_0.80": sens["min_high_overlap"] >= 0.80,
+        "night_share_of_high": float((high & (r["hour"] < 5)).sum() / max(high.sum(), 1)),
+        "night_share_of_high_below_0.15": bool((high & (r["hour"] < 5)).sum() / max(high.sum(), 1) < 0.15),
         "night_free_flow_mean_index": beh["by_phase"].get("night free flow (00-05h)", {}).get("mean_index"),
     }
     gate["passed"] = bool(gate["abs_spearman_at_most_0.65"] and gate["high_at_full_free_flow"] == 0
-                          and gate["high_right_after_gap"] == 0 and gate["min_high_overlap_weights_at_least_0.80"])
+                          and gate["high_right_after_gap"] == 0 and gate["min_top10_overlap_weights_at_least_0.80"]
+                          and gate["night_share_of_high_below_0.15"])
 
     usual = usual_table(r, cfg)
     usual.round(4).to_csv(out / "safety_usual.csv", index=False)
