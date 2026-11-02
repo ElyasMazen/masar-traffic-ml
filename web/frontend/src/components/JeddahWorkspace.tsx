@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import CitySelect, { type City } from "./CitySelect";
 import ForecastChart from "./ForecastChart";
 import JeddahMap from "./JeddahMap";
+import MapLayerToggle, { type MapLayer } from "./MapLayerToggle";
+import SafetyCard from "./SafetyCard";
+import { SHOW_SAFETY } from "@/lib/features";
+import { useSafety } from "@/lib/useSafety";
 import {
   formatClock,
   formatDateHour,
@@ -105,6 +109,9 @@ export default function JeddahWorkspace({
   const [date, setDate] = useState(defaultDate);
   const [hour, setHour] = useState(17);
   const [levels, setLevels] = useState<Record<string, JeddahLevel>>({});
+  const [mapLayer, setMapLayer] = useState<MapLayer>("congestion");
+  const safety = useSafety(date, hour);
+  const showSafetyLayer = SHOW_SAFETY && mapLayer === "safety";
   const [simulation, setSimulation] = useState<JeddahSimulation | null>(null);
   const [predictedAt, setPredictedAt] = useState(0); // when "Predict traffic" was pressed (ms)
   const [loading, setLoading] = useState(true);
@@ -379,15 +386,28 @@ export default function JeddahWorkspace({
           <div className="map-toolbar">
             <div>
               <div className="section-kicker">JEDDAH · MASAR PILOT DATA</div>
-              <h2>Predicted level · {date ? formatDateHour(`${date}T${formatHour(hour)}:00`) : formatHour(hour)}</h2>
+              <h2>
+                {showSafetyLayer ? "Safety risk" : "Predicted level"} ·{" "}
+                {date ? formatDateHour(`${date}T${formatHour(hour)}:00`) : formatHour(hour)}
+              </h2>
             </div>
-            <div className="map-legend">
-              <span><i className="dot-low" />Low</span>
-              <span><i className="dot-medium" />Medium</span>
-              <span><i className="dot-high" />High congestion</span>
-            </div>
+            {SHOW_SAFETY ? (
+              <MapLayerToggle layer={mapLayer} onChange={setMapLayer} />
+            ) : (
+              <div className="map-legend">
+                <span><i className="dot-low" />Low</span>
+                <span><i className="dot-medium" />Medium</span>
+                <span><i className="dot-high" />High congestion</span>
+              </div>
+            )}
           </div>
-          <JeddahMap points={points} levels={levels} selectedPointId={selectedId} onSelect={selectPoint} />
+          <JeddahMap
+            points={points}
+            levels={levels}
+            selectedPointId={selectedId}
+            onSelect={selectPoint}
+            overrides={showSafetyLayer ? safety.overrides : null}
+          />
         </div>
       </section>
 
@@ -459,6 +479,12 @@ export default function JeddahWorkspace({
               date.
               {selectedIsPast && " This is a prediction, not the observed value."}
             </p>
+            {SHOW_SAFETY && (
+              <SafetyCard
+                level={safety.levels[simulation.point.point_id] ?? null}
+                latest={safety.latest[simulation.point.point_id] ?? null}
+              />
+            )}
 
             <div className="chart-card simple-chart-card">
               <div className="chart-header">

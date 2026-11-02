@@ -1,0 +1,96 @@
+/* Safety risk indicator: map layer toggle and card. */
+
+.toggleWrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 16px;
+}
+
+.toggle {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.toggle button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #66736e;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toggle button.active {
+  background: var(--green-soft);
+  color: #1c6757;
+}
+
+.card {
+  margin-top: 15px;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #fff;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.title {
+  color: #7b8883;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.scoreRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.scoreRow strong {
+  font-size: 29px;
+  letter-spacing: -0.04em;
+}
+
+.scoreRow span {
+  color: #96a19d;
+  font-size: 12px;
+}
+
+.reason {
+  margin: 6px 0 0;
+  color: #4f5b57;
+  font-size: 13px;
+}
+
+.meta {
+  display: block;
+  margin-top: 8px;
+  color: #96a19d;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.note {
+  margin: 12px 0 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #6b5a2c;
+  font-size: 11px;
+  line-height: 1.45;
+}

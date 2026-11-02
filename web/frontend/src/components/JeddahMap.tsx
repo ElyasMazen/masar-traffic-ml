@@ -17,6 +17,8 @@ type Props = {
   levels: Record<string, JeddahLevel>;
   selectedPointId: string | null;
   onSelect: (point: JeddahPoint) => void;
+  /** Optional other layer (e.g. safety risk): colour level and popup text per point. */
+  overrides?: Record<string, { level: string; text: string }> | null;
 };
 
 const JEDDAH_BOUNDS: [[number, number], [number, number]] = [
@@ -28,18 +30,21 @@ function pointCollection(
   points: JeddahPoint[],
   levels: Record<string, JeddahLevel>,
   selectedPointId: string | null,
+  overrides?: Props["overrides"],
 ) {
   return {
     type: "FeatureCollection" as const,
     features: points.map((point) => {
       const level = levels[point.point_id];
+      const override = overrides ? overrides[point.point_id] : undefined;
       return {
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: [point.longitude, point.latitude] },
         properties: {
           point_id: point.point_id,
           label: point.label,
-          traffic_level: level?.traffic_level ?? "Unknown",
+          traffic_level: overrides ? (override?.level ?? "Unknown") : (level?.traffic_level ?? "Unknown"),
+          popup_text: overrides ? `${point.label} — ${override?.text ?? "no data"}` : null,
           speed_kmh: level?.speed_kmh ?? null,
           ratio_text: level ? ratioPercent(level.speed_ratio) : null,
           selected: point.point_id === selectedPointId,
@@ -49,11 +54,11 @@ function pointCollection(
   };
 }
 
-export default function JeddahMap({ points, levels, selectedPointId, onSelect }: Props) {
+export default function JeddahMap({ points, levels, selectedPointId, onSelect, overrides = null }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const pointsRef = useRef(points);
-  const dataRef = useRef(pointCollection(points, levels, selectedPointId));
+  const dataRef = useRef(pointCollection(points, levels, selectedPointId, overrides));
   const selectRef = useRef(onSelect);
 
   useEffect(() => {
@@ -127,9 +132,12 @@ export default function JeddahMap({ points, levels, selectedPointId, onSelect }:
         if (!props) return;
         const speed = props.speed_kmh == null || props.speed_kmh === "null" ? "" : ` · ${Math.round(Number(props.speed_kmh))} km/h`;
         const ratio = props.ratio_text == null || props.ratio_text === "null" ? "" : ` (${props.ratio_text} of free flow)`;
+        const text = props.popup_text && props.popup_text !== "null"
+          ? String(props.popup_text)
+          : `${props.label} — ${props.traffic_level}${speed}${ratio}`;
         popup
           .setLngLat(event.lngLat)
-          .setText(`${props.label} — ${props.traffic_level}${speed}${ratio}`)
+          .setText(text)
           .addTo(map);
       });
       map.on("mouseleave", "jeddah-point-dots", () => {
@@ -153,10 +161,10 @@ export default function JeddahMap({ points, levels, selectedPointId, onSelect }:
 
   useEffect(() => {
     // Before the map loads, the load handler picks this up from dataRef.
-    dataRef.current = pointCollection(points, levels, selectedPointId);
+    dataRef.current = pointCollection(points, levels, selectedPointId, overrides);
     const source = mapRef.current?.getSource("jeddah-points") as GeoJSONSource | undefined;
     source?.setData(dataRef.current as never);
-  }, [points, levels, selectedPointId]);
+  }, [points, levels, selectedPointId, overrides]);
 
   useEffect(() => {
     const map = mapRef.current;
