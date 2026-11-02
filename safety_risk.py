@@ -179,12 +179,12 @@ def sensitivity(readings: pd.DataFrame, r: pd.DataFrame, cfg: ms.SafetyConfig) -
                     ms.main_index(ms.weighted_score(scores, w, cfg.min_components), r["speed_ratio"], r["sudden_drop"], cfg)[0])
     alt = ms.SafetyConfig(step_min=cfg.step_min, window_min=2 * cfg.window_min)
     comp2 = ms.compute_components(readings, alt)
-    s2 = ms.percentile_scores(comp2, by="point_id")
+    s2 = ms.percentile_scores(comp2, by="point_id", positive_only=True)
     idx2 = ms.main_index(ms.weighted_score(s2, alt.weights, alt.min_components), comp2["speed_ratio"], comp2["sudden_drop"], alt)[0]
     variant(f"window {2 * cfg.window_min} min (vs {cfg.window_min})", idx2)
 
     # Same check for the phase-1 raw index, for the before/after table.
-    gscores = ms.percentile_scores(r)
+    gscores = ms.percentile_scores(r.assign(sudden_drop=r["sudden_drop_raw"]))
     raw_top = top_set(r["raw_index"])
     raw_rows = []
     for c in ms.COMPONENTS:

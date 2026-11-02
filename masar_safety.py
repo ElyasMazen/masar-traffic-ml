@@ -18,7 +18,9 @@ congestion level itself):
 
 The MAIN index is "risk beyond what is usual for this traffic level":
   1. each component -> 0-1 percentile rank within the point's OWN history
-     (so short, jumpy TomTom segments do not dominate);
+     (so short, jumpy TomTom segments do not dominate); 0 stays 0 and
+     non-zero values are ranked among the non-zero values only. A drop
+     counts only if it is >= min_drop (0.15 of free flow);
   2. weighted mean of the scores (SafetyConfig.weights);
   3. minus the mean of that score for readings at the same traffic level
      (the three congestion levels, LEVEL_BINS); only the excess counts;
@@ -82,7 +84,8 @@ class SafetyConfig:
     level_bins: list = field(default_factory=lambda: list(LEVEL_BINS))
     recovery_rule: bool = True         # index 0 at ratio >= FREE_FLOW_RATIO unless the reading is a drop
     free_flow_ratio: float = FREE_FLOW_RATIO
-    full_scale: float = 0.5            # an excess of 0.5 (score units) = index 100
+    full_scale: float = 0.7            # an excess of 0.7 (score units) = index 100
+    min_drop: float = 0.15             # a drop counts only if speed_ratio falls >= 0.15 between readings
     band_cutoffs: tuple = (30.0, 60.0)     # index >= 30 Medium, >= 60 High (fixed, no quota)
     relative_bands: tuple = (0.70, 0.90)   # comparison only: top 10% High, next 20% Medium
     incident_radius_km: float = 1.0
@@ -126,7 +129,11 @@ def compute_components(readings: pd.DataFrame, cfg: SafetyConfig, usual: dict | 
                 "current_speed_kmh_t", "current_speed_kmh_lag1", "speed_ratio_lag1"]].copy()
     out = out.rename(columns={"current_speed_kmh_t": "speed_kmh", "current_speed_kmh_lag1": "speed_kmh_prev",
                               "speed_ratio_lag1": "speed_ratio_prev"})
-    out["sudden_drop"] = (out["speed_ratio_prev"] - out["speed_ratio"]).clip(lower=0)   # NaN stays NaN
+    # sudden_drop_raw: any fall (phase-1 definition, used by raw_index). sudden_drop:
+    # only meaningful falls (>= cfg.min_drop, ~15% of free flow); smaller dips count as 0.
+    out["sudden_drop_raw"] = (out["speed_ratio_prev"] - out["speed_ratio"]).clip(lower=0)   # NaN stays NaN
+    out["sudden_drop"] = out["sudden_drop_raw"].where(
+        out["sudden_drop_raw"].isna() | (out["sudden_drop_raw"] >= cfg.min_drop), 0.0)
 
     # a) variability - CV of speed over a time-based window (t - window, t] per point.
     # The window never spans a collection gap (same limit as the lags: one step +
@@ -217,16 +224,25 @@ def incident_context(comp: pd.DataFrame, readings: pd.DataFrame, incidents_csv: 
 
 # ----------------------------------------------------------------- the index
 
-def percentile_scores(comp: pd.DataFrame, columns=COMPONENTS, by: str | None = None) -> pd.DataFrame:
+def percentile_scores(comp: pd.DataFrame, columns=COMPONENTS, by: str | None = None,
+                      positive_only: bool = False) -> pd.DataFrame:
     """Each component -> 0-1 percentile rank over all readings, or within each `by` group
     (by="point_id": against the point's own history).
 
-    Ties take their LOWEST rank, so a component that is 0 (no drop, not below
-    usual) scores exactly 0 rather than a mid rank; the largest value scores 1.
+    positive_only=False (phase 1): ties take their LOWEST rank, so 0 scores 0 -
+    but with most readings at 0 the smallest non-zero value jumps to ~0.8.
+    positive_only=True (main index): 0 stays 0 and non-zero values are ranked
+    only among the non-zero values, so a tiny change scores low and the
+    largest scores 1.
     """
     scores = pd.DataFrame(index=comp.index)
     for c in columns:
         x = comp[c]
+        if positive_only:
+            pos = x.where(x > 0)
+            rank = pos.rank(pct=True) if by is None else pos.groupby(comp[by]).rank(pct=True)
+            scores[c] = rank.where(~(x == 0), 0.0)        # NaN stays NaN
+            continue
         if by is None:
             r, n = x.rank(method="min"), x.notna().sum()
         else:
@@ -328,12 +344,12 @@ def build(readings: pd.DataFrame, cfg: SafetyConfig, incidents_csv: str | None =
     comp = compute_components(readings, cfg)
 
     # raw_index (phase 1): global percentiles, equal weights, no level adjustment.
-    global_scores = percentile_scores(comp)
+    global_scores = percentile_scores(comp.assign(sudden_drop=comp["sudden_drop_raw"]))
     comp["raw_index"] = risk_index(global_scores, cfg.raw_weights, cfg.min_components)
     comp["raw_band_relative"] = relative_bands(comp["raw_index"], cfg.relative_bands)
 
     # Main index: per-point percentiles -> weighted score -> excess over the same speed level.
-    scores = percentile_scores(comp, by="point_id" if cfg.per_point else None)
+    scores = percentile_scores(comp, by="point_id" if cfg.per_point else None, positive_only=True)
     comp = comp.join(scores.add_suffix("_score"))
     comp["combined_score"] = weighted_score(scores, cfg.weights, cfg.min_components)
     comp["risk_index"], comp["expected_at_level"] = main_index(
