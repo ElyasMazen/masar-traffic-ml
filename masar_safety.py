@@ -16,8 +16,16 @@ congestion level itself):
   d) unusual       how far speed_ratio is BELOW the usual ratio for point x hour x day type
   e) incident      (optional, off by default) TomTom incidents active within ~1 km
 
-Each component is turned into a 0-1 percentile rank, combined with the weights
-in WEIGHTS into a 0-100 Risk Index, and banded two ways (relative / absolute).
+The MAIN index is "risk beyond what is usual for this traffic level":
+  1. each component -> 0-1 percentile rank within the point's OWN history
+     (so short, jumpy TomTom segments do not dominate);
+  2. weighted mean of the scores (SafetyConfig.weights);
+  3. minus the mean of that score for readings at the same speed level
+     (speed_ratio band, LEVEL_BINS); only the excess counts;
+  4. index = 100 x excess / INDEX_FULL_SCALE, capped at 100; fixed band cut-offs.
+Without step 3 the index mostly restated congestion (Spearman -0.82 with
+speed_ratio). That earlier version is still computed as raw_index for
+comparison (global percentiles, equal weights) but is not shown in the app.
 
 Reuses masar_features for loading, gap rules (lag_features) and the usual
 tables. The grid step follows mf.STEP_MIN (10 for the raw data, 30 later).
@@ -44,22 +52,27 @@ REASONS = {
 }
 
 
+# Speed levels the index is made relative to (speed_ratio bands, left-closed).
+# Exactly 1.0 (free flow, ~2/3 of readings) is its own band.
+LEVEL_BINS = [0.0, 0.40, 0.50, 0.60, 0.70, 0.80, 0.85, 0.95, 0.9999, 1.01]
+
+
 @dataclass
 class SafetyConfig:
     step_min: int = 10                 # grid step of the input data
     window_min: int = 60               # rolling window for the variability component
-    weights: dict = field(default_factory=lambda: {c: 1.0 for c in COMPONENTS})   # equal weights
+    # Weights of the MAIN index. neighbour is approximate (km-spaced points, unknown
+    # direction) and unusual still largely restates congestion after the level
+    # adjustment, so both count half.
+    weights: dict = field(default_factory=lambda: {
+        "variability": 1.0, "sudden_drop": 1.0, "neighbour": 0.5, "unusual": 0.5})
+    raw_weights: dict = field(default_factory=lambda: {c: 1.0 for c in COMPONENTS})   # raw_index (phase 1)
     min_components: int = 3            # an index needs at least this many components
-    relative_bands: tuple = (0.70, 0.90)   # percentile of the index: >= 0.90 High, >= 0.70 Medium
-    # Absolute cut-offs on the RAW components (see docs/SAFETY_INDICATOR.md for the reasoning).
-    # High if any component reaches its High cut-off, or two reach their Medium cut-off.
-    absolute_cutoffs: dict = field(default_factory=lambda: {
-        #               Medium  High
-        "variability": (0.10, 0.20),   # CV of speed within the window
-        "sudden_drop": (0.15, 0.30),   # fall in speed_ratio since the previous reading
-        "neighbour":   (0.30, 0.50),   # |ratio difference| to an adjacent point
-        "unusual":     (0.15, 0.30),   # ratio below the usual ratio for this hour
-    })
+    per_point: bool = True             # percentile ranks within each point's own history
+    level_bins: list = field(default_factory=lambda: list(LEVEL_BINS))
+    full_scale: float = 0.5            # an excess of 0.5 (score units) = index 100
+    band_cutoffs: tuple = (30.0, 60.0)     # index >= 30 Medium, >= 60 High (fixed, no quota)
+    relative_bands: tuple = (0.70, 0.90)   # comparison only: top 10% High, next 20% Medium
     incident_radius_km: float = 1.0
     use_incidents: bool = False        # optional component; never part of the main index by default
 
@@ -186,8 +199,9 @@ def incident_context(comp: pd.DataFrame, readings: pd.DataFrame, incidents_csv: 
 
 # ----------------------------------------------------------------- the index
 
-def percentile_scores(comp: pd.DataFrame, columns=COMPONENTS) -> pd.DataFrame:
-    """Each component -> 0-1 percentile rank over all readings.
+def percentile_scores(comp: pd.DataFrame, columns=COMPONENTS, by: str | None = None) -> pd.DataFrame:
+    """Each component -> 0-1 percentile rank over all readings, or within each `by` group
+    (by="point_id": against the point's own history).
 
     Ties take their LOWEST rank, so a component that is 0 (no drop, not below
     usual) scores exactly 0 rather than a mid rank; the largest value scores 1.
@@ -195,35 +209,77 @@ def percentile_scores(comp: pd.DataFrame, columns=COMPONENTS) -> pd.DataFrame:
     scores = pd.DataFrame(index=comp.index)
     for c in columns:
         x = comp[c]
-        r = x.rank(method="min")
-        n = x.notna().sum()
-        scores[c] = (r - 1) / max(n - 1, 1)
+        if by is None:
+            r, n = x.rank(method="min"), x.notna().sum()
+        else:
+            g = x.groupby(comp[by])
+            r, n = g.rank(method="min"), g.transform("count")
+        scores[c] = (r - 1) / np.maximum(n - 1, 1)
     return scores
 
 
-def risk_index(scores: pd.DataFrame, weights: dict, min_components: int = 3) -> pd.Series:
-    """Weighted mean of the available component scores x 100; NaN with fewer than min_components."""
+def weighted_score(scores: pd.DataFrame, weights: dict, min_components: int = 3) -> pd.Series:
+    """Weighted mean (0-1) of the available component scores; NaN with fewer than min_components."""
     cols = [c for c in weights if weights[c] > 0]
     s = scores[cols]
     w = pd.Series(weights)[cols]
     available = s.notna()
     weighted = (s.fillna(0) * w).sum(axis=1)
     total = (available * w).sum(axis=1)
-    index = 100 * weighted / total.replace(0, np.nan)
-    return index.where(available.sum(axis=1) >= min_components)
+    return (weighted / total.replace(0, np.nan)).where(available.sum(axis=1) >= min_components)
 
 
-def main_reason(scores: pd.DataFrame, weights: dict, index: pd.Series) -> pd.Series:
-    """The component with the largest weighted contribution ('none' when the index is 0)."""
+def risk_index(scores: pd.DataFrame, weights: dict, min_components: int = 3) -> pd.Series:
+    """Phase-1 index (kept as raw_index): weighted mean of the scores x 100, no level adjustment."""
+    return 100 * weighted_score(scores, weights, min_components)
+
+
+def speed_level(speed_ratio: pd.Series, bins=LEVEL_BINS) -> pd.Series:
+    return pd.cut(speed_ratio, bins, right=False)
+
+
+def level_adjusted_index(score: pd.Series, speed_ratio: pd.Series, cfg: SafetyConfig) -> tuple[pd.Series, pd.Series]:
+    """Index = 100 x (score - mean score at the same speed level) / full_scale, clipped to 0-100.
+
+    Returns (index, expected score at that level). 0 means 'no more unstable than
+    usual for this traffic level'.
+    """
+    level = speed_level(speed_ratio, cfg.level_bins)
+    expected = score.groupby(level, observed=True).transform("mean")
+    index = (100 * (score - expected) / cfg.full_scale).clip(0, 100)
+    return index, expected
+
+
+def main_reason(scores: pd.DataFrame, weights: dict, index: pd.Series,
+                speed_ratio: pd.Series | None = None, bins=LEVEL_BINS) -> pd.Series:
+    """The component with the largest weighted contribution ('none' when the index is 0).
+
+    With speed_ratio given, each component's contribution is its excess over the
+    mean of that component at the same speed level - matching the main index.
+    """
     cols = [c for c in weights if weights[c] > 0]
-    contrib = scores[cols].mul(pd.Series(weights)[cols]).fillna(-1)
+    s = scores[cols]
+    if speed_ratio is not None:
+        level = speed_level(speed_ratio, bins)
+        s = s - s.groupby(level, observed=True).transform("mean")
+    contrib = s.mul(pd.Series(weights)[cols]).fillna(-np.inf)
     reason = contrib.idxmax(axis=1).map(REASONS)
     reason[index.fillna(0) <= 0] = "none"
     reason[index.isna()] = ""
     return reason
 
 
+def fixed_bands(index: pd.Series, cutoffs=(30.0, 60.0)) -> pd.Series:
+    """Fixed cut-offs on the index - no quota, so a calm day can have no High."""
+    band = pd.Series("Low", index=index.index)
+    band[index >= cutoffs[0]] = "Medium"
+    band[index >= cutoffs[1]] = "High"
+    band[index.isna()] = ""
+    return band
+
+
 def relative_bands(index: pd.Series, cuts=(0.70, 0.90)) -> pd.Series:
+    """Comparison only: top 10% High, next 20% Medium."""
     lo, hi = index.quantile(cuts[0]), index.quantile(cuts[1])
     band = pd.Series("Low", index=index.index)
     band[index >= lo] = "Medium"
@@ -232,31 +288,34 @@ def relative_bands(index: pd.Series, cuts=(0.70, 0.90)) -> pd.Series:
     return band
 
 
-def absolute_bands(comp: pd.DataFrame, cutoffs: dict) -> pd.Series:
-    """High if any raw component reaches its High cut-off, or two reach their Medium cut-off;
-    Medium if one reaches its Medium cut-off; else Low."""
-    med = pd.DataFrame({c: comp[c] >= cutoffs[c][0] for c in cutoffs})
-    high = pd.DataFrame({c: comp[c] >= cutoffs[c][1] for c in cutoffs})
-    band = pd.Series("Low", index=comp.index)
-    band[med.any(axis=1)] = "Medium"
-    band[high.any(axis=1) | (med.sum(axis=1) >= 2)] = "High"
-    return band
-
-
 def build(readings: pd.DataFrame, cfg: SafetyConfig, incidents_csv: str | None = None) -> pd.DataFrame:
-    """Components, scores, index, both bands and the main reason for every reading."""
+    """Components, scores, the main (level-adjusted) index, bands and main reason for every reading.
+
+    Also keeps raw_index - the phase-1 version (global percentiles, equal weights,
+    no level adjustment) - for comparison. It is not used by the app.
+    """
     comp = compute_components(readings, cfg)
-    scores = percentile_scores(comp)
+
+    # raw_index (phase 1): global percentiles, equal weights, no level adjustment.
+    global_scores = percentile_scores(comp)
+    comp["raw_index"] = risk_index(global_scores, cfg.raw_weights, cfg.min_components)
+    comp["raw_band_relative"] = relative_bands(comp["raw_index"], cfg.relative_bands)
+
+    # Main index: per-point percentiles -> weighted score -> excess over the same speed level.
+    scores = percentile_scores(comp, by="point_id" if cfg.per_point else None)
     comp = comp.join(scores.add_suffix("_score"))
-    comp["risk_index"] = risk_index(scores, cfg.weights, cfg.min_components)
+    comp["combined_score"] = weighted_score(scores, cfg.weights, cfg.min_components)
+    comp["risk_index"], comp["expected_at_level"] = level_adjusted_index(
+        comp["combined_score"], comp["speed_ratio"], cfg)
+    comp["band"] = fixed_bands(comp["risk_index"], cfg.band_cutoffs)
     comp["band_relative"] = relative_bands(comp["risk_index"], cfg.relative_bands)
-    comp["band_absolute"] = absolute_bands(comp, cfg.absolute_cutoffs)
-    comp["main_reason"] = main_reason(scores, cfg.weights, comp["risk_index"])
+    comp["main_reason"] = main_reason(scores, cfg.weights, comp["risk_index"], comp["speed_ratio"], cfg.level_bins)
+
     if incidents_csv is not None:
         comp = comp.join(incident_context(comp, readings, incidents_csv, cfg.incident_radius_km))
         if cfg.use_incidents:   # optional extra component; off by default
             inc_score = (comp["incident_count"] > 0).astype(float).where(comp["incident_count"].notna())
-            scores = scores.assign(incident=inc_score)
             weights = {**cfg.weights, "incident": cfg.weights.get("incident", 1.0)}
-            comp["risk_index_with_incidents"] = risk_index(scores, weights, cfg.min_components)
+            with_inc = weighted_score(scores.assign(incident=inc_score), weights, cfg.min_components)
+            comp["risk_index_with_incidents"] = level_adjusted_index(with_inc, comp["speed_ratio"], cfg)[0]
     return comp
