@@ -134,7 +134,44 @@ Both runs train on 5–15 Oct and test on 16–18 Oct. Only the grid step differ
 - `train_masar.py [--step 30] [--csv …]` — full evaluation, charts and final (full-data) models
 - `predict_next.py --horizon {30,60}` — forecast from the latest readings with the full-data model; it uses the step the model was trained with
 - `outputs/`, `charts/`, `models/` — see README. `outputs/results.json → step` records the grid step, horizons and resampling counts.
+- `masar_safety.py`, `safety_risk.py` — the safety risk indicator (section 12; full method in `docs/SAFETY_INDICATOR.md`)
 
-## 12. Reference methodology
+## 12. Safety risk indicator (pilot, separate from congestion)
+
+A rule-based **safety risk indicator**, not accident prediction. It flags moments that are **more unstable than usual for their traffic level**, from speed patterns that the literature links to crash risk:
+- Choudhary et al. 2018: speed variability.
+- Parsa et al. 2020: upstream/downstream speed differences and sudden changes.
+
+There is no road-level crash data, so it is **not validated against crashes**. It is built on the 10-minute data (5–18 Oct), so its results do not depend on the congestion models.
+
+**Components:**
+- sudden drop (counted only if ≥ 0.15 of free flow)
+- speed variability (60-min window, restarted after gaps)
+- speed difference to the neighbouring point (approximate)
+- unusual slowness
+
+**Index:**
+- Components are scored as percentiles within each point's own history.
+- The index is the excess over the usual score for the same congestion level, scaled to 0–100.
+- It is 0 from 0.85 of free flow up unless there is a sudden drop, so **High only occurs in slowed traffic**.
+- Bands: Medium ≥ 21, High ≥ 43.
+
+**Gate (sanity and robustness only):**
+
+| Check | Result |
+|---|---|
+| Spearman vs speed_ratio | −0.58 (the first version: −0.82) |
+| High at full free flow / right after a gap | 0 / 0 |
+| Worst top-10% overlap, weights ±50% | 85% |
+| Night share of High | 11% |
+| High readings | 109 (95–167 depending on the weights) |
+
+**Top moments:** large drops within 10 minutes, e.g. Al Madinah 2 on 11 Oct 18:50, 94 → 42 km/h.
+
+**In the web app:** a map toggle (Congestion / Safety risk) and a "Safety risk" card. For a chosen date and hour the card shows the 90th percentile of the index at that point, day type and hour, with the note that it is not validated against crash data. The feature can be hidden with `SHOW_SAFETY` in `web/frontend/src/lib/features.ts`.
+
+The history of what was tried and why it changed is in `docs/SAFETY_INDICATOR.md`.
+
+## 13. Reference methodology
 
 Sara Atef (2026), *Comparative Evaluation of Traffic Load Prediction Models for Intelligent Transportation Systems Using High-Resolution Urban Data*, Smart Cities, 9(4), 56. DOI: 10.3390/smartcities9040056. Masar adapts its methodological principles (chronological evaluation, train-only preprocessing, baselines) but is not the same experiment: it uses 30-minute multi-point data and a categorical congestion target.

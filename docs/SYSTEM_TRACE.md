@@ -55,6 +55,9 @@ flowchart TD
 | `web/frontend/src/components/JeddahMap.tsx` | MapLibre map with 10 coloured dots. |
 | `web/frontend/src/components/ForecastChart.tsx` | Recharts area chart for the 12-hour forecast. |
 | `web/frontend/src/components/CitySelect.tsx` | City dropdown; NYC is hidden with `SHOW_NYC = false`. |
+| `masar_safety.py`, `safety_risk.py` | Safety risk indicator (not accident prediction): components, index, bands, checks; writes `outputs/safety_*.{csv,json}` and `charts/safety_*.png`. See `docs/SAFETY_INDICATOR.md`. |
+| `web/backend/app/services/safety_service.py` | Serves the safety risk indicator from those outputs. |
+| `web/frontend/src/lib/features.ts`, `lib/safety.ts`, `lib/useSafety.ts`, `components/MapLayerToggle.tsx`, `components/SafetyCard.tsx`, `components/safety.module.css` | Safety risk in the UI: the `SHOW_SAFETY` switch, API client and hook, the map layer toggle and the "Safety risk" card. |
 | `web/frontend/src/lib/jeddah.ts`, `lib/api.ts`, `lib/format.ts`, `lib/maplibre.ts` | API client and types; `API_BASE` (default `http://127.0.0.1:8000`); formatting (en-GB, `ratioPercent`, `horizonTitle`, `formatClock`); MapLibre worker URL. |
 
 ---
@@ -272,6 +275,11 @@ There are 36 inputs (35 numeric + `point_id`, which is one-hot encoded in `make_
 | `GET /api/jeddah/short-term` (L159) | `step_min`, horizon, per point: `latest_timestamp` (grid slot), `latest_reading_time` (actual), `forecast_for`, persistence and model level, probability | Full-data RF |
 | `GET /api/jeddah/levels` (L164) | Per point: hour-mean ratio (unrounded), km/h, level | Time-of-day state |
 | `POST /api/jeddah/simulate` (L169) | Cards, range, `data_coverage`, method, 12-hour forecast | Time-of-day state, `usual`, catalog |
+| `GET /api/jeddah/safety/levels?date&hour` | Per point: usual safety risk score (90th percentile of the index for that day type and hour), band, main component, reason, share of readings Medium or High | `outputs/safety_usual.csv` (`safety_service.py`) |
+| `GET /api/jeddah/safety/latest` | Per point: index, band and reason of the newest reading | `outputs/safety_risk.csv` |
+| `GET /api/jeddah/safety/summary` | Definition, note, cut-offs, gate numbers | `outputs/safety_validation.json` |
+
+The safety service is cached like the Jeddah service, so it needs a backend restart after `python safety_risk.py`. It returns 503 if the outputs are missing.
 
 ---
 
@@ -310,6 +318,20 @@ There are 36 inputs (35 numeric + `point_id`, which is one-hot encoded in `make_
 - Only the main test exists, so there are no "Latest 20%" rows.
 - **Weekend note** (`weekendNote` L254+): "The weekend part of the main test is 2 weekend days (Fri 16 Oct, Sat 17 Oct) with 16 High readings at +60 min, so its numbers are especially noisy."
 
+### Safety risk (only if `SHOW_SAFETY` is true in `web/frontend/src/lib/features.ts`)
+- **Map toggle** (`MapLayerToggle.tsx`), in the map toolbar: **Congestion / Safety risk**.
+  - With Safety risk, the dots are coloured by the safety band of the chosen date and hour.
+  - `JeddahMap.tsx` takes an optional `overrides` prop for this. The popup reads "Safety risk Medium · 30/100 · high variability".
+  - The map title changes to "Safety risk · …".
+- **"Safety risk" card** (`SafetyCard.tsx`), under the selected-time cards after Predict:
+  - **Score:** the 90th percentile of the index for the point, day type and hour (`safety_usual.csv`). The mean of these rare, short events never reaches Medium.
+  - **Band:** Medium ≥ 21, High ≥ 43.
+  - **Reason:** "More unstable than usual for this traffic level: *component*", or "Not more unstable than usual for this traffic level" when the score is 0.
+  - **How often:** the share of past readings at that hour that were Medium or High.
+  - **Latest reading:** that point's latest index.
+  - **The note:** "Indicator based on speed patterns linked to crash risk in the literature; not validated against crash data."
+- Definition, gate and history: `docs/SAFETY_INDICATOR.md`.
+
 ---
 
 ## 8. Congestion causes / explanations
@@ -317,7 +339,8 @@ There are 36 inputs (35 numeric + `point_id`, which is one-hot encoded in `make_
 **Unchanged: no causal explanation is implemented.** The page shows when congestion happens (hour, day type, 12-hour curve) and the recent state (the next-hour table), but not why.
 - **Feature importance:** impurity importance of the full-data +60 min RF is written to `outputs/random_forest_feature_importance.csv` and a chart, **not shown in the UI**. Top features: `usual_ratio_target` 0.221, `speed_ratio_t` 0.099, `current_speed_kmh_t` 0.079, `delay_s_t` 0.059, `ratio_roll3_mean` 0.054, `speed_ratio_lag1` 0.041.
 - **SHAP:** not implemented.
-- **Incidents:** `jeddah_incidents.csv` is not referenced anywhere in this repo.
+- **Incidents:** `jeddah_incidents.csv` is read only by `safety_risk.py`, as a weak proxy check and an optional (off) component of the safety risk indicator. The congestion models don't use it.
+- **Safety risk indicator:** the closest thing to an explanation in the app. It says when a point is "more unstable than usual for this traffic level" and names the main component (sudden drop, variability, neighbour difference, unusual slowness). It describes speed patterns, not causes.
 - **What could support explanations later:**
   1. the deviation from the `usual` table
   2. the trend features
@@ -445,3 +468,4 @@ There are 36 inputs (35 numeric + `point_id`, which is one-hot encoded in `make_
 | **Model probability** | The forest's average vote share for the predicted class; not calibrated. |
 | **Feature importance (impurity)** | Global contribution of each feature to the RF's splits. |
 | **SHAP** | A per-prediction attribution method; not implemented. |
+| **Safety risk indicator** | Rule-based score (0–100) of how much more unstable than usual a point is for its traffic level; not accident prediction, not validated against crash data. |
