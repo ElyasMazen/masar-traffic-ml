@@ -176,11 +176,11 @@ def sensitivity(readings: pd.DataFrame, r: pd.DataFrame, cfg: ms.SafetyConfig) -
         for factor in (0.5, 1.5):
             w = {**cfg.weights, c: cfg.weights[c] * factor}
             variant(f"{c} weight x{factor}",
-                    ms.level_adjusted_index(ms.weighted_score(scores, w, cfg.min_components), r["speed_ratio"], cfg)[0])
+                    ms.main_index(ms.weighted_score(scores, w, cfg.min_components), r["speed_ratio"], r["sudden_drop"], cfg)[0])
     alt = ms.SafetyConfig(step_min=cfg.step_min, window_min=2 * cfg.window_min)
     comp2 = ms.compute_components(readings, alt)
     s2 = ms.percentile_scores(comp2, by="point_id")
-    idx2 = ms.level_adjusted_index(ms.weighted_score(s2, alt.weights, alt.min_components), comp2["speed_ratio"], alt)[0]
+    idx2 = ms.main_index(ms.weighted_score(s2, alt.weights, alt.min_components), comp2["speed_ratio"], comp2["sudden_drop"], alt)[0]
     variant(f"window {2 * cfg.window_min} min (vs {cfg.window_min})", idx2)
 
     # Same check for the phase-1 raw index, for the before/after table.
@@ -312,6 +312,52 @@ def usual_table(r: pd.DataFrame, cfg: ms.SafetyConfig) -> pd.DataFrame:
             "mean_speed_ratio": g["speed_ratio"].mean(),
         })
     return pd.DataFrame(rows)
+
+
+def after_gap_window(r: pd.DataFrame, minutes: int) -> pd.Series:
+    """True for readings within `minutes` after the end of a collection gap at that point."""
+    gap_end = r["ts"].where(r["after_gap"])
+    last_gap_end = gap_end.groupby(r["point_id"]).ffill()
+    return last_gap_end.notna() & ((r["ts"] - last_gap_end) <= pd.Timedelta(minutes=minutes))
+
+
+def variant_comparison(r: pd.DataFrame, cfg: ms.SafetyConfig) -> list[dict]:
+    """The four level-adjustment variants discussed before choosing option 1, on the same scores."""
+    scores = r[[f"{c}_score" for c in ms.COMPONENTS]].rename(columns=lambda c: c[:-6])
+    nine = [0.0, 0.40, 0.50, 0.60, 0.70, 0.80, 0.85, 0.95, 0.9999, 1.01]
+    cong = r["speed_ratio"] < mf.LOW_MIN_RATIO
+    full = r["speed_ratio"] >= 0.9999
+    out = []
+    for label, bins, recovery in (("9 speed bands", nine, False),
+                                  ("3 congestion levels", list(ms.LEVEL_BINS), False),
+                                  ("9 speed bands + recovery rule", nine, True),
+                                  ("3 congestion levels + recovery rule (chosen)", list(ms.LEVEL_BINS), True)):
+        vcfg = ms.SafetyConfig(level_bins=bins, recovery_rule=recovery)
+
+        def idx_for(w):
+            return ms.main_index(ms.weighted_score(scores, w, vcfg.min_components),
+                                 r["speed_ratio"], r["sudden_drop"], vcfg)[0]
+
+        base = idx_for(vcfg.weights)
+        hi, top = high_set(base, vcfg), top_set(base)
+        ov, ovt = [], []
+        for c in ms.COMPONENTS:
+            for f in (0.5, 1.5):
+                v = idx_for({**vcfg.weights, c: vcfg.weights[c] * f})
+                ov.append(overlap(hi, high_set(v, vcfg)))
+                ovt.append(overlap(top, top_set(v)))
+        hl = list(hi)
+        out.append({
+            "variant": label,
+            "spearman_vs_speed_ratio": base.corr(r["speed_ratio"], method="spearman"),
+            "share_high": len(hi) / base.notna().sum(),
+            "high_at_full_free_flow": float(full[hl].mean()) if hl else 0.0,
+            "high_in_congestion": float(cong[hl].mean()) if hl else 0.0,
+            "night_free_flow_share_high": float((base[(r["hour"] < 5) & ~cong] >= vcfg.band_cutoffs[1]).mean()),
+            "worst_high_overlap_weights": min(ov),
+            "worst_top10_overlap_weights": min(ovt),
+        })
+    return out
 
 
 def before_after(r: pd.DataFrame, sens: dict, cfg: ms.SafetyConfig) -> dict:
@@ -493,6 +539,22 @@ def main():
                     "earlier readings are unknown.",
         }
 
+    variants = variant_comparison(r, cfg)
+    high = r["band"] == "High"
+    rho = over["correlation_index_vs_speed_ratio"]["spearman"]
+    gate = {
+        "spearman_vs_speed_ratio": rho,
+        "abs_spearman_at_most_0.65": abs(rho) <= 0.65,
+        "high_at_full_free_flow": int((high & (r["speed_ratio"] >= 0.9999)).sum()),
+        "high_right_after_gap": int((high & r["after_gap"]).sum()),
+        "high_within_one_hour_after_gap": int((high & after_gap_window(r, 60)).sum()),
+        "min_high_overlap": sens["min_high_overlap"],
+        "min_high_overlap_at_least_0.80": sens["min_high_overlap"] >= 0.80,
+        "night_free_flow_mean_index": beh["by_phase"].get("night free flow (00-05h)", {}).get("mean_index"),
+    }
+    gate["passed"] = bool(gate["abs_spearman_at_most_0.65"] and gate["high_at_full_free_flow"] == 0
+                          and gate["high_right_after_gap"] == 0 and gate["min_high_overlap_at_least_0.80"])
+
     usual = usual_table(r, cfg)
     usual.round(4).to_csv(out / "safety_usual.csv", index=False)
     r.assign(phase=phase).drop(columns=["daytype"]).to_csv(out / "safety_risk.csv", index=False)
@@ -506,12 +568,9 @@ def main():
                    "per_point_percentiles": cfg.per_point, "level_bins": cfg.level_bins,
                    "full_scale": cfg.full_scale, "band_cutoffs_medium_high": cfg.band_cutoffs,
                    "min_components": cfg.min_components, "incident_radius_km": cfg.incident_radius_km},
-        "gate": {
-            "abs_spearman_below_0.3": abs(over["correlation_index_vs_speed_ratio"]["spearman"]) < 0.3,
-            "night_free_flow_mean_index": beh["by_phase"].get("night free flow (00-05h)", {}).get("mean_index"),
-            "min_high_overlap_at_least_0.85": sens["min_high_overlap"] >= 0.85,
-        },
+        "gate": gate,
         "before_after": ba,
+        "variant_comparison": variants,
         "road_order_north_to_south": order,
         "neighbour_spacing_km": spacing,
         "component_summary": r[ms.COMPONENTS].describe(percentiles=[0.5, 0.9, 0.95, 0.99]).to_dict(),

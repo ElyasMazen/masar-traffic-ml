@@ -20,9 +20,12 @@ The MAIN index is "risk beyond what is usual for this traffic level":
   1. each component -> 0-1 percentile rank within the point's OWN history
      (so short, jumpy TomTom segments do not dominate);
   2. weighted mean of the scores (SafetyConfig.weights);
-  3. minus the mean of that score for readings at the same speed level
-     (speed_ratio band, LEVEL_BINS); only the excess counts;
-  4. index = 100 x excess / INDEX_FULL_SCALE, capped at 100; fixed band cut-offs.
+  3. minus the mean of that score for readings at the same traffic level
+     (the three congestion levels, LEVEL_BINS); only the excess counts;
+  4. index = 100 x excess / full_scale, capped at 100; fixed band cut-offs;
+  5. recovery rule: at ratio >= 0.95 the index is 0 unless the reading is a drop.
+The variability window restarts after a collection gap, so a reading right
+after a gap never scores on instability that spans the gap.
 Without step 3 the index mostly restated congestion (Spearman -0.82 with
 speed_ratio). That earlier version is still computed as raw_index for
 comparison (global percentiles, equal weights) but is not shown in the app.
@@ -52,9 +55,16 @@ REASONS = {
 }
 
 
-# Speed levels the index is made relative to (speed_ratio bands, left-closed).
-# Exactly 1.0 (free flow, ~2/3 of readings) is its own band.
-LEVEL_BINS = [0.0, 0.40, 0.50, 0.60, 0.70, 0.80, 0.85, 0.95, 0.9999, 1.01]
+# Traffic levels the index is made relative to: the three congestion levels
+# (speed_ratio < 0.60 High, 0.60-0.85 Medium, >= 0.85 Low; left-closed bins).
+# Nine narrow speed bands were tried first: free flow (ratio 1.0) then had an
+# expected score near 0, so any leftover instability became "High" there.
+LEVEL_BINS = [0.0, mf.MEDIUM_MIN_RATIO, mf.LOW_MIN_RATIO, 1.01]
+
+# Recovery rule: at (near) free flow the index is 0 unless the reading itself is
+# a sudden drop. Otherwise a road that is already back at full speed scores high
+# only because its last hour still contains the slowdown.
+FREE_FLOW_RATIO = 0.95
 
 
 @dataclass
@@ -70,6 +80,8 @@ class SafetyConfig:
     min_components: int = 3            # an index needs at least this many components
     per_point: bool = True             # percentile ranks within each point's own history
     level_bins: list = field(default_factory=lambda: list(LEVEL_BINS))
+    recovery_rule: bool = True         # index 0 at ratio >= FREE_FLOW_RATIO unless the reading is a drop
+    free_flow_ratio: float = FREE_FLOW_RATIO
     full_scale: float = 0.5            # an excess of 0.5 (score units) = index 100
     band_cutoffs: tuple = (30.0, 60.0)     # index >= 30 Medium, >= 60 High (fixed, no quota)
     relative_bands: tuple = (0.70, 0.90)   # comparison only: top 10% High, next 20% Medium
@@ -117,13 +129,19 @@ def compute_components(readings: pd.DataFrame, cfg: SafetyConfig, usual: dict | 
     out["sudden_drop"] = (out["speed_ratio_prev"] - out["speed_ratio"]).clip(lower=0)   # NaN stays NaN
 
     # a) variability - CV of speed over a time-based window (t - window, t] per point.
-    # Needs at least half the readings the window should hold (and >= 2).
+    # The window never spans a collection gap (same limit as the lags: one step +
+    # half a step): it restarts after a gap, so right after a gap it holds only the
+    # post-gap readings. Needs at least half the readings the window should hold
+    # (and >= 2), otherwise NaN.
     need = max(2, int(np.ceil(0.5 * cfg.window_min / cfg.step_min)))
+    gap_limit = pd.Timedelta(minutes=cfg.step_min * 1.5)
     cv = []
     for _, g in d.groupby("point_id", sort=True):
-        s = g.set_index("ts")["current_speed_kmh"].astype(float)
-        roll = s.rolling(f"{cfg.window_min}min", min_periods=need)
-        cv.append((roll.std(ddof=0) / roll.mean()).to_numpy())
+        run = (g["ts"].diff() > gap_limit).cumsum()
+        for _, seg in g.groupby(run, sort=True):
+            s = seg.set_index("ts")["current_speed_kmh"].astype(float)
+            roll = s.rolling(f"{cfg.window_min}min", min_periods=need)
+            cv.append((roll.std(ddof=0) / roll.mean()).to_numpy())
     out["variability"] = np.concatenate(cv)
 
     # c) neighbour difference - max |ratio difference| to the adjacent point(s) on
@@ -250,6 +268,19 @@ def level_adjusted_index(score: pd.Series, speed_ratio: pd.Series, cfg: SafetyCo
     return index, expected
 
 
+def main_index(score: pd.Series, speed_ratio: pd.Series, sudden_drop: pd.Series,
+               cfg: SafetyConfig) -> tuple[pd.Series, pd.Series]:
+    """The main index: level-adjusted excess, then the recovery rule.
+
+    Recovery rule: back at (near) free flow and not dropping -> 0, nothing beyond usual to flag.
+    """
+    index, expected = level_adjusted_index(score, speed_ratio, cfg)
+    if cfg.recovery_rule:
+        settled = (speed_ratio >= cfg.free_flow_ratio) & ~(sudden_drop > 0)
+        index = index.mask(settled & index.notna(), 0.0)
+    return index, expected
+
+
 def main_reason(scores: pd.DataFrame, weights: dict, index: pd.Series,
                 speed_ratio: pd.Series | None = None, bins=LEVEL_BINS) -> pd.Series:
     """The component with the largest weighted contribution ('none' when the index is 0).
@@ -305,8 +336,11 @@ def build(readings: pd.DataFrame, cfg: SafetyConfig, incidents_csv: str | None =
     scores = percentile_scores(comp, by="point_id" if cfg.per_point else None)
     comp = comp.join(scores.add_suffix("_score"))
     comp["combined_score"] = weighted_score(scores, cfg.weights, cfg.min_components)
-    comp["risk_index"], comp["expected_at_level"] = level_adjusted_index(
-        comp["combined_score"], comp["speed_ratio"], cfg)
+    comp["risk_index"], comp["expected_at_level"] = main_index(
+        comp["combined_score"], comp["speed_ratio"], comp["sudden_drop"], cfg)
+    # First reading after a collection gap (for checks; it has no index by construction).
+    prev_ts = comp.groupby("point_id")["ts"].shift(1)
+    comp["after_gap"] = prev_ts.notna() & ((comp["ts"] - prev_ts) > pd.Timedelta(minutes=cfg.step_min * 1.5))
     comp["band"] = fixed_bands(comp["risk_index"], cfg.band_cutoffs)
     comp["band_relative"] = relative_bands(comp["risk_index"], cfg.relative_bands)
     comp["main_reason"] = main_reason(scores, cfg.weights, comp["risk_index"], comp["speed_ratio"], cfg.level_bins)
